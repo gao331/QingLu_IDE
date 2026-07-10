@@ -1,0 +1,4650 @@
+<火山程序 类型 = "通常" 版本 = 1 />
+
+包 火山.程序 <注释 = "当前项目专用的MFC停靠窗口封装.普通窗口可使用停靠窗口管理器做边缘布局."
+        注释 = "VS停靠窗口基于mfc_ui_mdi中的MDI子窗口/CDockablePane,用于可拖拽、浮动、自动隐藏、标签化的MFC停靠窗."
+        @视窗.需求系统头文件 = "afxwin.h | 当前 Visual Studio 本地编译环境未安装 MFC ,需要首先将其安装才能进行编译.">
+
+# @ <global>
+# @ <include>
+# @ #include <vector>
+# @ #include <afxcontrolbars.h>
+# @ #include <commctrl.h>
+# @ #include <windowsx.h>
+# @ #include <richedit.h>
+# @ #include <tchar.h>
+# @
+# @ #ifndef ECO_NOHIDESEL
+# @ #define ECO_NOHIDESEL 0x00000100
+# @ #endif
+# @ #ifndef ES_NOHIDESEL
+# @ #define ES_NOHIDESEL 0x00000100
+# @ #endif
+# @ #ifndef CCIDE_DOCK_DEBUG
+# @ #define CCIDE_DOCK_DEBUG 0
+# @ #endif
+# @ #if !CCIDE_DOCK_DEBUG
+# @ #define DebugTrace(...) ((void)0)
+# @ #endif
+# @
+# @ class CCcIdeDockTabCtrlHook
+# @ {
+# @ public:
+# @     static void Install (CMFCBaseTabCtrl* pTabWnd)
+# @     {
+# @         if (pTabWnd == NULL || pTabWnd->GetSafeHwnd () == NULL)
+# @             return;
+# @         HWND hWnd = pTabWnd->GetSafeHwnd ();
+# @         if (::GetProp (hWnd, OldProcProp ()) != NULL)
+# @             return;
+# @         WNDPROC oldProc = (WNDPROC)::SetWindowLongPtr (hWnd, GWLP_WNDPROC, (LONG_PTR)CCcIdeDockTabCtrlHook::Proc);
+# @         if (oldProc != NULL)
+# @             ::SetProp (hWnd, OldProcProp (), (HANDLE)oldProc);
+# @         ::SetProp (hWnd, TabCtrlProp (), (HANDLE)pTabWnd);
+# @     }
+# @
+# @ private:
+# @     static const TCHAR* OldProcProp ()
+# @     {
+# @         return _T ("ccide_mfc_dock_tab_old_proc");
+# @     }
+# @
+# @     static const TCHAR* TabCtrlProp ()
+# @     {
+# @         return _T ("ccide_mfc_dock_tab_ctrl");
+# @     }
+# @
+# @     static void ActivateTabAtPoint (HWND hWnd, LPARAM lParam)
+# @     {
+# @         CMFCBaseTabCtrl* pTabWnd = (CMFCBaseTabCtrl*)::GetProp (hWnd, TabCtrlProp ());
+# @         if (pTabWnd == NULL || pTabWnd->GetSafeHwnd () == NULL)
+# @             return;
+# @         CPoint point (GET_X_LPARAM (lParam), GET_Y_LPARAM (lParam));
+# @         INT nTab = pTabWnd->GetTabFromPoint (point);
+# @         if (nTab < 0)
+# @             return;
+# @         pTabWnd->SetActiveTab (nTab);
+# @         pTabWnd->EnsureVisible (nTab);
+# @         CWnd* pActiveWnd = pTabWnd->GetTabWnd (nTab);
+# @         if (pActiveWnd != NULL && pActiveWnd->GetSafeHwnd () != NULL)
+# @         {
+# @             pActiveWnd->ShowWindow (SW_SHOW);
+# @             pActiveWnd->BringWindowToTop ();
+# @             pActiveWnd->RedrawWindow (NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+# @         }
+# @         pTabWnd->Invalidate ();
+# @     }
+# @
+# @     static LRESULT CALLBACK Proc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+# @     {
+# @         WNDPROC oldProc = (WNDPROC)::GetProp (hWnd, OldProcProp ());
+# @         if (uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONUP)
+# @         {
+# @             LRESULT lr = oldProc != NULL ? ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam) : ::DefWindowProc (hWnd, uMsg, wParam, lParam);
+# @             ActivateTabAtPoint (hWnd, lParam);
+# @             return lr;
+# @         }
+# @         if (uMsg == WM_NCDESTROY)
+# @         {
+# @             if (oldProc != NULL)
+# @             {
+# @                 ::SetWindowLongPtr (hWnd, GWLP_WNDPROC, (LONG_PTR)oldProc);
+# @                 ::RemoveProp (hWnd, OldProcProp ());
+# @                 ::RemoveProp (hWnd, TabCtrlProp ());
+# @                 return ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam);
+# @             }
+# @         }
+# @         return oldProc != NULL ? ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam) : ::DefWindowProc (hWnd, uMsg, wParam, lParam);
+# @     }
+# @ };
+# @
+# @ class CCcIdeDockScrollTrack
+# @ {
+# @ public:
+# @     static BOOL Start (HWND hWnd, INT nBar, POINT ptScreen)
+# @     {
+# @         if (hWnd == NULL || !::IsWindow (hWnd) || (nBar != SB_VERT && nBar != SB_HORZ))
+# @             return FALSE;
+# @         SCROLLINFO si;
+# @         ZeroMemory (&si, sizeof (si));
+# @         si.cbSize = sizeof (si);
+# @         si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+# @         if (!::GetScrollInfo (hWnd, nBar, &si))
+# @             return FALSE;
+# @         LONG nMaxPos = si.nMax - (LONG)si.nPage + 1;
+# @         if (nMaxPos < si.nMin)
+# @             nMaxPos = si.nMin;
+# @         TrackWnd () = hWnd;
+# @         TrackBar () = nBar;
+# @         ::SetCapture (hWnd);
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_SCROLL_TRACK_START"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), nBar);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hWnd);
+# @         Update (ptScreen, TRUE);
+# @         return TRUE;
+# @     }
+# @
+# @     static BOOL HandleMouseHook (UINT uMsg, POINT ptScreen)
+# @     {
+# @         HWND hWnd = TrackWnd ();
+# @         if (hWnd == NULL || !::IsWindow (hWnd))
+# @             return FALSE;
+# @         if (uMsg == WM_MOUSEMOVE)
+# @         {
+# @             Update (ptScreen, TRUE);
+# @             return TRUE;
+# @         }
+# @         if (uMsg == WM_LBUTTONUP)
+# @         {
+# @             Update (ptScreen, FALSE);
+# @             ::SendMessage (hWnd, TrackBar () == SB_VERT ? WM_VSCROLL : WM_HSCROLL, MAKELONG (SB_ENDSCROLL, 0), 0);
+# @             if (::GetCapture () == hWnd)
+# @                 ::ReleaseCapture ();
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_SCROLL_TRACK_END"));
+# @             DebugTrace (FALSE, 0, 0, _T ("n"), TrackBar ());
+# @             TrackWnd () = NULL;
+# @             TrackBar () = SB_VERT;
+# @             return TRUE;
+# @         }
+# @         return FALSE;
+# @     }
+# @
+# @ private:
+# @     static HWND& TrackWnd ()
+# @     {
+# @         static HWND s_hWnd = NULL;
+# @         return s_hWnd;
+# @     }
+# @
+# @     static INT& TrackBar ()
+# @     {
+# @         static INT s_nBar = SB_VERT;
+# @         return s_nBar;
+# @     }
+# @
+# @     static LONG CalcPos (HWND hWnd, INT nBar, POINT ptScreen, const SCROLLINFO& si)
+# @     {
+# @         RECT rcWindow;
+# @         ::GetWindowRect (hWnd, &rcWindow);
+# @         const int cxScroll = ::GetSystemMetrics (SM_CXVSCROLL);
+# @         const int cyScroll = ::GetSystemMetrics (SM_CYHSCROLL);
+# @         LONG nMaxPos = si.nMax - (LONG)si.nPage + 1;
+# @         if (nMaxPos < si.nMin)
+# @             nMaxPos = si.nMin;
+# @         LONG nTrackStart = 0;
+# @         LONG nTrackEnd = 0;
+# @         LONG nCoord = 0;
+# @         if (nBar == SB_VERT)
+# @         {
+# @             nTrackStart = rcWindow.top + cyScroll;
+# @             nTrackEnd = rcWindow.bottom - cyScroll;
+# @             nCoord = ptScreen.y;
+# @         }
+# @         else
+# @         {
+# @             nTrackStart = rcWindow.left + cxScroll;
+# @             nTrackEnd = rcWindow.right - cxScroll;
+# @             nCoord = ptScreen.x;
+# @         }
+# @         if (nTrackEnd <= nTrackStart)
+# @             return si.nPos;
+# @         if (nCoord < nTrackStart)
+# @             nCoord = nTrackStart;
+# @         if (nCoord > nTrackEnd)
+# @             nCoord = nTrackEnd;
+# @         return si.nMin + (LONG)((__int64)(nCoord - nTrackStart) * (nMaxPos - si.nMin) / (nTrackEnd - nTrackStart));
+# @     }
+# @
+# @     static void Update (POINT ptScreen, BOOL bTrack)
+# @     {
+# @         HWND hWnd = TrackWnd ();
+# @         INT nBar = TrackBar ();
+# @         SCROLLINFO si;
+# @         ZeroMemory (&si, sizeof (si));
+# @         si.cbSize = sizeof (si);
+# @         si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+# @         if (!::GetScrollInfo (hWnd, nBar, &si))
+# @             return;
+# @         LONG nPos = CalcPos (hWnd, nBar, ptScreen, si);
+# @         UINT uMsg = nBar == SB_VERT ? WM_VSCROLL : WM_HSCROLL;
+# @         UINT uCode = bTrack ? SB_THUMBTRACK : SB_THUMBPOSITION;
+# @         ::SendMessage (hWnd, uMsg, MAKELONG (uCode, (WORD)nPos), 0);
+# @         si.fMask = SIF_POS;
+# @         si.nPos = nPos;
+# @         ::SetScrollInfo (hWnd, nBar, &si, TRUE);
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), bTrack ? _T ("CCIDE_SCROLL_TRACK_MOVE") : _T ("CCIDE_SCROLL_TRACK_POS"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), nBar);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), nPos);
+# @     }
+# @ };
+# @
+# @ class CCcIdeDockTabbedBarHook
+# @ {
+# @ public:
+# @     static void Install (CBaseTabbedPane* pTabbedPane, CMFCBaseTabCtrl* pTabWnd)
+# @     {
+# @         if (pTabbedPane == NULL || pTabbedPane->GetSafeHwnd () == NULL || pTabWnd == NULL)
+# @             return;
+# @         HWND hWnd = pTabbedPane->GetSafeHwnd ();
+# @         for (int i = 0; i < 4 && hWnd != NULL && ::IsWindow (hWnd); ++i)
+# @         {
+# @             InstallWindow (hWnd, pTabWnd);
+# @             hWnd = ::GetParent (hWnd);
+# @         }
+# @     }
+# @
+# @     static BOOL ForwardMouseFromHook (HWND hWnd, UINT uMsg, WPARAM wParam, POINT ptScreen)
+# @     {
+# @         if (hWnd == NULL || !::IsWindow (hWnd) || ::GetProp (hWnd, TabCtrlProp ()) == NULL)
+# @             return FALSE;
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_HOOK_FORWARD"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT)uMsg);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hWnd);
+# @         return ForwardScreenPointToActivePaneChild (hWnd, uMsg, wParam, ptScreen);
+# @     }
+# @
+# @ private:
+# @     static void InstallWindow (HWND hWnd, CMFCBaseTabCtrl* pTabWnd)
+# @     {
+# @         if (hWnd == NULL || !::IsWindow (hWnd))
+# @             return;
+# @         if (::GetProp (hWnd, OldProcProp ()) != NULL)
+# @             return;
+# @         WNDPROC oldProc = (WNDPROC)::SetWindowLongPtr (hWnd, GWLP_WNDPROC, (LONG_PTR)CCcIdeDockTabbedBarHook::Proc);
+# @         if (oldProc != NULL)
+# @             ::SetProp (hWnd, OldProcProp (), (HANDLE)oldProc);
+# @         ::SetProp (hWnd, TabCtrlProp (), (HANDLE)pTabWnd);
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_HOOK_INSTALLED"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hWnd);
+# @     }
+# @
+# @     static const TCHAR* OldProcProp ()
+# @     {
+# @         return _T ("ccide_tabbed_bar_old_proc");
+# @     }
+# @
+# @     static const TCHAR* TabCtrlProp ()
+# @     {
+# @         return _T ("ccide_tabbed_bar_tab_ctrl");
+# @     }
+# @
+# @     static HWND DeepChildFromScreenPoint (HWND hRoot, POINT ptScreen)
+# @     {
+# @         HWND hPointWnd = ::WindowFromPoint (ptScreen);
+# @         if (hPointWnd != NULL && ::IsWindow (hPointWnd) && (hPointWnd == hRoot || ::IsChild (hRoot, hPointWnd)))
+# @             return hPointWnd;
+# @         HWND hCurrent = hRoot;
+# @         for (int i = 0; i < 12 && hCurrent != NULL && ::IsWindow (hCurrent); ++i)
+# @         {
+# @             POINT ptClient = ptScreen;
+# @             ::ScreenToClient (hCurrent, &ptClient);
+# @             HWND hChild = ::ChildWindowFromPointEx (hCurrent, ptClient, CWP_SKIPINVISIBLE | CWP_SKIPDISABLED | CWP_SKIPTRANSPARENT);
+# @             if (hChild == NULL || hChild == hCurrent)
+# @                 return hCurrent;
+# @             hCurrent = hChild;
+# @         }
+# @         return hCurrent;
+# @     }
+# @
+# @     static BOOL ForwardNonClientScrollMouse (HWND hChild, UINT uMsg, POINT ptScreen)
+# @     {
+# @         if (uMsg != WM_LBUTTONDOWN || hChild == NULL || !::IsWindow (hChild))
+# @             return FALSE;
+# @         RECT rcWindow;
+# @         ::GetWindowRect (hChild, &rcWindow);
+# @         if (!::PtInRect (&rcWindow, ptScreen))
+# @             return FALSE;
+# @         POINT ptClient = ptScreen;
+# @         ::ScreenToClient (hChild, &ptClient);
+# @         RECT rcClient;
+# @         ::GetClientRect (hChild, &rcClient);
+# @         if (::PtInRect (&rcClient, ptClient))
+# @             return FALSE;
+# @         LRESULT nHit = ::SendMessage (hChild, WM_NCHITTEST, 0, MAKELPARAM (ptScreen.x, ptScreen.y));
+# @         if (nHit != HTHSCROLL && nHit != HTVSCROLL)
+# @         {
+# @             const int cxScroll = ::GetSystemMetrics (SM_CXVSCROLL);
+# @             const int cyScroll = ::GetSystemMetrics (SM_CYHSCROLL);
+# @             if (ptScreen.y >= rcWindow.bottom - cyScroll && ptScreen.y < rcWindow.bottom)
+# @                 nHit = HTHSCROLL;
+# @             else if (ptScreen.x >= rcWindow.right - cxScroll && ptScreen.x < rcWindow.right)
+# @                 nHit = HTVSCROLL;
+# @         }
+# @         if (nHit != HTHSCROLL && nHit != HTVSCROLL)
+# @             return FALSE;
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_CHILD_NCSCROLL"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT)nHit);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hChild);
+# @         ::SetFocus (hChild);
+# @         return CCcIdeDockScrollTrack::Start (hChild, nHit == HTVSCROLL ? SB_VERT : SB_HORZ, ptScreen);
+# @     }
+# @
+# @     static BOOL IsPointInTabCtrl (CMFCBaseTabCtrl* pTabWnd, POINT ptScreen)
+# @     {
+# @         if (pTabWnd == NULL || pTabWnd->GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         CPoint ptTab = ptScreen;
+# @         pTabWnd->ScreenToClient (&ptTab);
+# @         INT nHitTab = pTabWnd->GetTabFromPoint (ptTab);
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_HITTEST"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), nHitTab);
+# @         return nHitTab >= 0;
+# @     }
+# @
+# @     static BOOL ForwardToTabCtrl (CMFCBaseTabCtrl* pTabWnd, UINT uMsg, WPARAM wParam, POINT ptScreen)
+# @     {
+# @         if (pTabWnd == NULL || pTabWnd->GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         if (uMsg != WM_LBUTTONDOWN && uMsg != WM_LBUTTONUP && uMsg != WM_LBUTTONDBLCLK &&
+# @                 uMsg != WM_RBUTTONDOWN && uMsg != WM_RBUTTONUP)
+# @             return FALSE;
+# @         HWND hTab = pTabWnd->GetSafeHwnd ();
+# @         POINT ptTab = ptScreen;
+# @         ::ScreenToClient (hTab, &ptTab);
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_FORWARD_TAB"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT)uMsg);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hTab);
+# @         ::SetFocus (hTab);
+# @         ::SendMessage (hTab, uMsg, wParam, MAKELPARAM (ptTab.x, ptTab.y));
+# @         return TRUE;
+# @     }
+# @
+# @     static BOOL ForwardToActivePaneChild (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+# @     {
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_FORWARD_ENTER"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT)uMsg);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hWnd);
+# @         POINT ptScreen;
+# @         ptScreen.x = GET_X_LPARAM (lParam);
+# @         ptScreen.y = GET_Y_LPARAM (lParam);
+# @         ::ClientToScreen (hWnd, &ptScreen);
+# @         return ForwardScreenPointToActivePaneChild (hWnd, uMsg, wParam, ptScreen);
+# @     }
+# @
+# @     static BOOL ForwardScreenPointToActivePaneChild (HWND hWnd, UINT uMsg, WPARAM wParam, POINT ptScreen)
+# @     {
+# @         CMFCBaseTabCtrl* pTabWnd = (CMFCBaseTabCtrl*)::GetProp (hWnd, TabCtrlProp ());
+# @         if (pTabWnd == NULL || pTabWnd->GetSafeHwnd () == NULL)
+# @         {
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_NO_TABCTRL"));
+# @             return FALSE;
+# @         }
+# @         if (IsPointInTabCtrl (pTabWnd, ptScreen))
+# @         {
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_IN_TABCTRL"));
+# @             return ForwardToTabCtrl (pTabWnd, uMsg, wParam, ptScreen);
+# @         }
+# @         INT nActive = pTabWnd->GetActiveTab ();
+# @         CWnd* pActivePane = nActive < 0 ? NULL : pTabWnd->GetTabWnd (nActive);
+# @         HWND hPane = pActivePane == NULL ? NULL : pActivePane->GetSafeHwnd ();
+# @         if (hPane == NULL || !::IsWindow (hPane))
+# @             return FALSE;
+# @         RECT rcPaneClient;
+# @         ::GetClientRect (hPane, &rcPaneClient);
+# @         POINT ptClientLt;
+# @         POINT ptClientRb;
+# @         ptClientLt.x = rcPaneClient.left;
+# @         ptClientLt.y = rcPaneClient.top;
+# @         ptClientRb.x = rcPaneClient.right;
+# @         ptClientRb.y = rcPaneClient.bottom;
+# @         ::ClientToScreen (hPane, &ptClientLt);
+# @         ::ClientToScreen (hPane, &ptClientRb);
+# @         rcPaneClient.left = ptClientLt.x;
+# @         rcPaneClient.top = ptClientLt.y;
+# @         rcPaneClient.right = ptClientRb.x;
+# @         rcPaneClient.bottom = ptClientRb.y;
+# @         if (!::PtInRect (&rcPaneClient, ptScreen))
+# @         {
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_OUTSIDE_PANE"));
+# @             return FALSE;
+# @         }
+# @         HWND hUserWnd = (HWND)::GetProp (hPane, _T ("ccide_dock_pane_user_wnd"));
+# @         if (hUserWnd != NULL && ::IsWindow (hUserWnd))
+# @         {
+# @             RECT rcUserWnd;
+# @             ::GetWindowRect (hUserWnd, &rcUserWnd);
+# @             if (!::PtInRect (&rcUserWnd, ptScreen))
+# @             {
+# @                 DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_OUTSIDE_USER"));
+# @                 return FALSE;
+# @             }
+# @         }
+# @         HWND hChild = DeepChildFromScreenPoint (hPane, ptScreen);
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_MOUSE"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT)uMsg);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hWnd);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT)nActive);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hPane);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hChild);
+# @         if (hChild == NULL || hChild == hWnd || !::IsWindow (hChild))
+# @             return FALSE;
+# @         if (ForwardNonClientScrollMouse (hChild, uMsg, ptScreen))
+# @             return TRUE;
+# @         POINT ptChild = ptScreen;
+# @         ::ScreenToClient (hChild, &ptChild);
+# @         ::SetFocus (hChild);
+# @         if (uMsg == WM_CONTEXTMENU)
+# @             ::SendMessage (hChild, uMsg, (WPARAM)hChild, MAKELPARAM (ptScreen.x, ptScreen.y));
+# @         else
+# @             ::SendMessage (hChild, uMsg, wParam, MAKELPARAM (ptChild.x, ptChild.y));
+# @         return TRUE;
+# @     }
+# @
+# @     static LRESULT CALLBACK Proc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+# @     {
+# @         WNDPROC oldProc = (WNDPROC)::GetProp (hWnd, OldProcProp ());
+# @         switch (uMsg)
+# @         {
+# @         case WM_MOUSEACTIVATE:
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_MOUSEACTIVATE"));
+# @             return MA_ACTIVATE;
+# @         case WM_CONTEXTMENU:
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_TABBED_BAR_SUPPRESS_CONTEXT_MENU"));
+# @             {
+# @                 POINT ptScreen;
+# @                 if (lParam != (LPARAM)-1)
+# @                 {
+# @                     ptScreen.x = GET_X_LPARAM (lParam);
+# @                     ptScreen.y = GET_Y_LPARAM (lParam);
+# @                 }
+# @                 else
+# @                 {
+# @                     ::GetCursorPos (&ptScreen);
+# @                 }
+# @                 ForwardScreenPointToActivePaneChild (hWnd, uMsg, wParam, ptScreen);
+# @             }
+# @             return 0;
+# @         case WM_LBUTTONDOWN:
+# @         case WM_LBUTTONUP:
+# @         case WM_LBUTTONDBLCLK:
+# @         case WM_RBUTTONDOWN:
+# @         case WM_RBUTTONUP:
+# @             if (ForwardToActivePaneChild (hWnd, uMsg, wParam, lParam))
+# @                 return 0;
+# @             break;
+# @         case WM_NCDESTROY:
+# @             if (oldProc != NULL)
+# @             {
+# @                 ::SetWindowLongPtr (hWnd, GWLP_WNDPROC, (LONG_PTR)oldProc);
+# @                 ::RemoveProp (hWnd, OldProcProp ());
+# @                 ::RemoveProp (hWnd, TabCtrlProp ());
+# @                 return ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam);
+# @             }
+# @             break;
+# @         }
+# @         return oldProc != NULL ? ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam) : ::DefWindowProc (hWnd, uMsg, wParam, lParam);
+# @     }
+# @ };
+# @
+# @ class CCcIdeDockMouseTraceHook
+# @ {
+# @ public:
+# @     static void Install ()
+# @     {
+# @         if (HookHandle () != NULL)
+# @             return;
+# @         HookHandle () = ::SetWindowsHookEx (WH_MOUSE, CCcIdeDockMouseTraceHook::Proc, NULL, ::GetCurrentThreadId ());
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_MOUSE_HOOK_INSTALLED"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)HookHandle ());
+# @     }
+# @
+# @ private:
+# @     static HHOOK& HookHandle ()
+# @     {
+# @         static HHOOK s_hHook = NULL;
+# @         return s_hHook;
+# @     }
+# @
+# @     static BOOL IsMouseButtonMessage (WPARAM wParam)
+# @     {
+# @         if (wParam == WM_MOUSEMOVE)
+# @             return (::GetKeyState (VK_LBUTTON) & 0x8000) != 0;
+# @         return wParam == WM_LBUTTONDOWN || wParam == WM_LBUTTONUP ||
+# @             wParam == WM_LBUTTONDBLCLK || wParam == WM_RBUTTONDOWN ||
+# @             wParam == WM_RBUTTONUP;
+# @     }
+# @
+# @     static WPARAM CurrentMouseKeyState (WPARAM message)
+# @     {
+# @         WPARAM state = 0;
+# @         if ((::GetKeyState (VK_LBUTTON) & 0x8000) != 0 || message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK)
+# @             state |= MK_LBUTTON;
+# @         if ((::GetKeyState (VK_RBUTTON) & 0x8000) != 0 || message == WM_RBUTTONDOWN)
+# @             state |= MK_RBUTTON;
+# @         if ((::GetKeyState (VK_MBUTTON) & 0x8000) != 0)
+# @             state |= MK_MBUTTON;
+# @         if ((::GetKeyState (VK_CONTROL) & 0x8000) != 0)
+# @             state |= MK_CONTROL;
+# @         if ((::GetKeyState (VK_SHIFT) & 0x8000) != 0)
+# @             state |= MK_SHIFT;
+# @         return state;
+# @     }
+# @
+# @     static BOOL IsOutputRichEdit (HWND hWnd)
+# @     {
+# @         if (hWnd == NULL || !::IsWindow (hWnd) || ::GetProp (hWnd, _T ("ccide_output_old_proc")) == NULL)
+# @             return FALSE;
+# @         TCHAR szClass[64];
+# @         ZeroMemory (szClass, sizeof (szClass));
+# @         ::GetClassName (hWnd, szClass, 63);
+# @         return _tcsicmp (szClass, _T ("RichEdit20W")) == 0 || _tcsicmp (szClass, _T ("RICHEDIT50W")) == 0 ||
+# @             _tcsicmp (szClass, _T ("RichEdit20A")) == 0 || _tcsicmp (szClass, _T ("RICHEDIT50A")) == 0;
+# @     }
+# @
+# @     static LONG OutputCharFromScreenPoint (HWND hWnd, POINT ptScreen)
+# @     {
+# @         POINT ptClient = ptScreen;
+# @         ::ScreenToClient (hWnd, &ptClient);
+# @         POINTL pt;
+# @         pt.x = ptClient.x;
+# @         pt.y = ptClient.y;
+# @         LRESULT result = ::SendMessage (hWnd, EM_CHARFROMPOS, 0, (LPARAM)&pt);
+# @         if (result < 0)
+# @             result = 0;
+# @         return (LONG)result;
+# @     }
+# @
+# @     static void SetOutputSelectionRange (HWND hWnd, LONG nAnchor, LONG nChar)
+# @     {
+# @         CHARRANGE cr;
+# @         ZERO_MEM (&cr, sizeof (cr));
+# @         if (nAnchor <= nChar)
+# @         {
+# @             cr.cpMin = nAnchor;
+# @             cr.cpMax = nChar;
+# @         }
+# @         else
+# @         {
+# @             cr.cpMin = nChar;
+# @             cr.cpMax = nAnchor;
+# @         }
+# @         if (cr.cpMax > cr.cpMin)
+# @             cr.cpMax++;
+# @         ::SetFocus (hWnd);
+# @         ::SendMessage (hWnd, EM_EXSETSEL, 0, (LPARAM)&cr);
+# @         ::SendMessage (hWnd, EM_HIDESELECTION, FALSE, 0);
+# @         ::RedrawWindow (hWnd, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+# @     }
+# @
+# @     static BOOL HandleOutputSelectionFromHook (HWND hWnd, UINT uMsg, POINT ptScreen)
+# @     {
+# @         if (!IsOutputRichEdit (hWnd) || ::GetProp (hWnd, _T ("ccide_output_selecting")) == NULL)
+# @             return FALSE;
+# @         if (uMsg == WM_MOUSEMOVE && (::GetKeyState (VK_LBUTTON) & 0x8000) != 0)
+# @         {
+# @             LONG nAnchor = (LONG)((INT_PTR)::GetProp (hWnd, _T ("ccide_output_select_anchor")) - 1);
+# @             LONG nChar = OutputCharFromScreenPoint (hWnd, ptScreen);
+# @             if (nAnchor < 0)
+# @                 nAnchor = nChar;
+# @             SetOutputSelectionRange (hWnd, nAnchor, nChar);
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_OUTPUT_SELECT_MOVE_HOOK"));
+# @             DebugTrace (FALSE, 0, 0, _T ("n"), nAnchor);
+# @             DebugTrace (FALSE, 0, 0, _T ("n"), nChar);
+# @             return TRUE;
+# @         }
+# @         if (uMsg == WM_LBUTTONUP)
+# @         {
+# @             LONG nAnchor = (LONG)((INT_PTR)::GetProp (hWnd, _T ("ccide_output_select_anchor")) - 1);
+# @             LONG nChar = OutputCharFromScreenPoint (hWnd, ptScreen);
+# @             if (nAnchor >= 0)
+# @                 SetOutputSelectionRange (hWnd, nAnchor, nChar);
+# @             ::RemoveProp (hWnd, _T ("ccide_output_selecting"));
+# @             ::RemoveProp (hWnd, _T ("ccide_output_select_anchor"));
+# @             if (::GetCapture () == hWnd)
+# @                 ::ReleaseCapture ();
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_OUTPUT_SELECT_END_HOOK"));
+# @             DebugTrace (FALSE, 0, 0, _T ("n"), nChar);
+# @             return TRUE;
+# @         }
+# @         return FALSE;
+# @     }
+# @
+# @     static HWND FindInternalTabOwner (HWND hStart, HWND& hTab)
+# @     {
+# @         hTab = NULL;
+# @         HWND hCur = hStart;
+# @         for (int i = 0; i < 12 && hCur != NULL && ::IsWindow (hCur); ++i)
+# @         {
+# @             hTab = (HWND)::GetProp (hCur, _T ("ccide_output_tab_hwnd"));
+# @             if (hTab != NULL && ::IsWindow (hTab))
+# @                 return hCur;
+# @             hTab = (HWND)::GetProp (hCur, _T ("ccide_solution_tab_hwnd"));
+# @             if (hTab != NULL && ::IsWindow (hTab))
+# @                 return hCur;
+# @             hCur = ::GetParent (hCur);
+# @         }
+# @         return NULL;
+# @     }
+# @
+# @     static INT HitInternalTab (HWND hTab, POINT ptScreen)
+# @     {
+# @         if (hTab == NULL || !::IsWindow (hTab))
+# @             return -1;
+# @         POINT ptTab = ptScreen;
+# @         ::ScreenToClient (hTab, &ptTab);
+# @         RECT rcTab;
+# @         if (!::GetClientRect (hTab, &rcTab))
+# @             return -1;
+# @         if (ptTab.x < 0 || ptTab.x >= rcTab.right || ptTab.y < 0 || ptTab.y >= rcTab.bottom)
+# @             return -1;
+# @         TCHITTESTINFO hit;
+# @         ZeroMemory (&hit, sizeof (hit));
+# @         hit.pt = ptTab;
+# @         INT nIndex = (INT)::SendMessage (hTab, TCM_HITTEST, 0, (LPARAM)&hit);
+# @         if (nIndex >= 0)
+# @             return nIndex;
+# @         if (ptTab.y < rcTab.bottom - 42 || ptTab.y >= rcTab.bottom)
+# @             return -1;
+# @         INT nCount = (INT)::SendMessage (hTab, TCM_GETITEMCOUNT, 0, 0);
+# @         for (INT i = 0; i < nCount; ++i)
+# @         {
+# @             RECT rcItem;
+# @             ZeroMemory (&rcItem, sizeof (rcItem));
+# @             if (::SendMessage (hTab, TCM_GETITEMRECT, i, (LPARAM)&rcItem))
+# @             {
+# @                 ::InflateRect (&rcItem, 8, 8);
+# @                 if (ptTab.x >= rcItem.left && ptTab.x < rcItem.right && ptTab.y >= rcItem.top && ptTab.y < rcItem.bottom)
+# @                     return i;
+# @             }
+# @         }
+# @         return -1;
+# @     }
+# @
+# @     static void ShowInternalTabPage (HWND hTab, INT nIndex)
+# @     {
+# @         HWND hTip = (HWND)::GetProp (hTab, _T ("ccide_output_tab_tip"));
+# @         HWND hOutput = (HWND)::GetProp (hTab, _T ("ccide_output_tab_output"));
+# @         if (::IsWindow (hTip) || ::IsWindow (hOutput))
+# @         {
+# @             if (::IsWindow (hTip)) ::ShowWindow (hTip, nIndex == 0 ? SW_SHOW : SW_HIDE);
+# @             if (::IsWindow (hOutput)) ::ShowWindow (hOutput, nIndex == 1 ? SW_SHOW : SW_HIDE);
+# @             return;
+# @         }
+# @         HWND hDoc = (HWND)::GetProp (hTab, _T ("ccide_solution_tab_doc"));
+# @         HWND hLib = (HWND)::GetProp (hTab, _T ("ccide_solution_tab_lib"));
+# @         HWND hProp = (HWND)::GetProp (hTab, _T ("ccide_solution_tab_prop"));
+# @         if (::IsWindow (hDoc)) ::ShowWindow (hDoc, nIndex == 0 ? SW_SHOW : SW_HIDE);
+# @         if (::IsWindow (hLib)) ::ShowWindow (hLib, nIndex == 1 ? SW_SHOW : SW_HIDE);
+# @         if (::IsWindow (hProp)) ::ShowWindow (hProp, nIndex == 2 ? SW_SHOW : SW_HIDE);
+# @     }
+# @
+# @     static BOOL HandleInternalTabSwitchFromHook (HWND hTarget, UINT uMsg, POINT ptScreen)
+# @     {
+# @         if (uMsg != WM_LBUTTONDOWN)
+# @             return FALSE;
+# @         HWND hTab = NULL;
+# @         HWND hOwner = FindInternalTabOwner (hTarget, hTab);
+# @         if (hOwner == NULL || hTab == NULL)
+# @             return FALSE;
+# @         INT nIndex = HitInternalTab (hTab, ptScreen);
+# @         if (nIndex < 0)
+# @             return FALSE;
+# @         ::SendMessage (hTab, TCM_SETCURSEL, nIndex, 0);
+# @         ShowInternalTabPage (hTab, nIndex);
+# @         ::InvalidateRect (hTab, NULL, TRUE);
+# @         ::InvalidateRect (hOwner, NULL, TRUE);
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_INTERNAL_TAB_SWITCH"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), nIndex);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hTab);
+# @         return TRUE;
+# @     }
+# @
+# @     static LRESULT CALLBACK Proc (int nCode, WPARAM wParam, LPARAM lParam)
+# @     {
+# @         if (nCode >= 0 && IsMouseButtonMessage (wParam))
+# @         {
+# @             MOUSEHOOKSTRUCT* pMouse = (MOUSEHOOKSTRUCT*)lParam;
+# @             HWND hTarget = pMouse == NULL ? NULL : pMouse->hwnd;
+# @             HWND hParent = hTarget == NULL ? NULL : ::GetParent (hTarget);
+# @             TCHAR szClass[128];
+# @             ZeroMemory (szClass, sizeof (szClass));
+# @             if (hTarget != NULL && ::IsWindow (hTarget))
+# @                 ::GetClassName (hTarget, szClass, 127);
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_MOUSE_HOOK"));
+# @             DebugTrace (FALSE, 0, 0, _T ("n"), (INT)wParam);
+# @             DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hTarget);
+# @             DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hParent);
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), szClass);
+# @             if (pMouse != NULL && CCcIdeDockScrollTrack::HandleMouseHook ((UINT)wParam, pMouse->pt))
+# @                 return 1;
+# @             if (pMouse != NULL && HandleOutputSelectionFromHook (hTarget, (UINT)wParam, pMouse->pt))
+# @                 return 1;
+# @             if (pMouse != NULL && HandleInternalTabSwitchFromHook (hTarget, (UINT)wParam, pMouse->pt))
+# @                 return 1;
+# @             if (wParam != WM_MOUSEMOVE && CCcIdeDockTabbedBarHook::ForwardMouseFromHook (hTarget, (UINT)wParam, CurrentMouseKeyState (wParam), pMouse->pt))
+# @                 return 1;
+# @         }
+# @         return ::CallNextHookEx (HookHandle (), nCode, wParam, lParam);
+# @     }
+# @ };
+# @
+# @ class CCcIdeDockUserWndHook
+# @ {
+# @ public:
+# @     static void Install (HWND hUserWnd)
+# @     {
+# @         if (hUserWnd == NULL || !::IsWindow (hUserWnd))
+# @             return;
+# @         if (::GetProp (hUserWnd, OldProcProp ()) != NULL)
+# @             return;
+# @         WNDPROC oldProc = (WNDPROC)::SetWindowLongPtr (hUserWnd, GWLP_WNDPROC, (LONG_PTR)CCcIdeDockUserWndHook::Proc);
+# @         if (oldProc != NULL)
+# @             ::SetProp (hUserWnd, OldProcProp (), (HANDLE)oldProc);
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_DOCK_USER_HOOK_INSTALLED"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hUserWnd);
+# @     }
+# @
+# @     static BOOL ForwardMouse (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+# @     {
+# @         return ForwardMouseToChild (hWnd, uMsg, wParam, lParam);
+# @     }
+# @
+# @ private:
+# @     static const TCHAR* OldProcProp ()
+# @     {
+# @         return _T ("ccide_dock_user_old_proc");
+# @     }
+# @
+# @     static HWND DeepChildFromPoint (HWND hParent, POINT ptParent)
+# @     {
+# @         POINT ptScreen = ptParent;
+# @         ::ClientToScreen (hParent, &ptScreen);
+# @         HWND hPointWnd = ::WindowFromPoint (ptScreen);
+# @         if (hPointWnd != NULL && ::IsWindow (hPointWnd) && (hPointWnd == hParent || ::IsChild (hParent, hPointWnd)))
+# @             return hPointWnd;
+# @         HWND hCurrent = hParent;
+# @         POINT pt = ptParent;
+# @         for (int i = 0; i < 8 && hCurrent != NULL && ::IsWindow (hCurrent); ++i)
+# @         {
+# @             HWND hChild = ::ChildWindowFromPointEx (hCurrent, pt, CWP_SKIPINVISIBLE | CWP_SKIPDISABLED | CWP_SKIPTRANSPARENT);
+# @             if (hChild == NULL || hChild == hCurrent)
+# @                 return hCurrent;
+# @             ::MapWindowPoints (hCurrent, hChild, &pt, 1);
+# @             hCurrent = hChild;
+# @         }
+# @         return hCurrent;
+# @     }
+# @
+# @     static BOOL ForwardNonClientScrollMouse (HWND hParent, HWND hChild, UINT uMsg, POINT ptParent)
+# @     {
+# @         if (uMsg != WM_LBUTTONDOWN || hChild == NULL || !::IsWindow (hChild))
+# @             return FALSE;
+# @         POINT ptChild = ptParent;
+# @         ::MapWindowPoints (hParent, hChild, &ptChild, 1);
+# @         RECT rcClient;
+# @         ::GetClientRect (hChild, &rcClient);
+# @         if (::PtInRect (&rcClient, ptChild))
+# @             return FALSE;
+# @         POINT ptScreen = ptParent;
+# @         ::ClientToScreen (hParent, &ptScreen);
+# @         RECT rcWindow;
+# @         ::GetWindowRect (hChild, &rcWindow);
+# @         LRESULT nHit = ::SendMessage (hChild, WM_NCHITTEST, 0, MAKELPARAM (ptScreen.x, ptScreen.y));
+# @         if (nHit != HTHSCROLL && nHit != HTVSCROLL)
+# @         {
+# @             const int cxScroll = ::GetSystemMetrics (SM_CXVSCROLL);
+# @             const int cyScroll = ::GetSystemMetrics (SM_CYHSCROLL);
+# @             if (ptScreen.y >= rcWindow.bottom - cyScroll && ptScreen.y < rcWindow.bottom)
+# @                 nHit = HTHSCROLL;
+# @             else if (ptScreen.x >= rcWindow.right - cxScroll && ptScreen.x < rcWindow.right)
+# @                 nHit = HTVSCROLL;
+# @         }
+# @         if (nHit != HTHSCROLL && nHit != HTVSCROLL)
+# @             return FALSE;
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_DOCK_CHILD_NCSCROLL"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT)nHit);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hChild);
+# @         ::SetFocus (hChild);
+# @         return CCcIdeDockScrollTrack::Start (hChild, nHit == HTVSCROLL ? SB_VERT : SB_HORZ, ptScreen);
+# @     }
+# @
+# @     static BOOL ForwardMouseToChild (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+# @     {
+# @         POINT pt;
+# @         POINT ptScreen;
+# @         if (uMsg == WM_CONTEXTMENU)
+# @         {
+# @             ::GetCursorPos (&ptScreen);
+# @             pt = ptScreen;
+# @             ::ScreenToClient (hWnd, &pt);
+# @         }
+# @         else
+# @         {
+# @             pt.x = GET_X_LPARAM (lParam);
+# @             pt.y = GET_Y_LPARAM (lParam);
+# @             ptScreen = pt;
+# @             ::ClientToScreen (hWnd, &ptScreen);
+# @         }
+# @         HWND hChild = DeepChildFromPoint (hWnd, pt);
+# @         DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_DOCK_USER_MOUSE"));
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT)uMsg);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hWnd);
+# @         DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hChild);
+# @         if (hChild == NULL || hChild == hWnd || !::IsWindow (hChild))
+# @             return FALSE;
+# @         if (ForwardNonClientScrollMouse (hWnd, hChild, uMsg, pt))
+# @             return TRUE;
+# @         POINT ptChild = pt;
+# @         ::MapWindowPoints (hWnd, hChild, &ptChild, 1);
+# @         ::SetFocus (hChild);
+# @         if (uMsg == WM_CONTEXTMENU)
+# @             ::SendMessage (hChild, uMsg, (WPARAM)hChild, MAKELPARAM (ptScreen.x, ptScreen.y));
+# @         else
+# @             ::SendMessage (hChild, uMsg, wParam, MAKELPARAM (ptChild.x, ptChild.y));
+# @         return TRUE;
+# @     }
+# @
+# @     static LRESULT CALLBACK Proc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+# @     {
+# @         WNDPROC oldProc = (WNDPROC)::GetProp (hWnd, OldProcProp ());
+# @         switch (uMsg)
+# @         {
+# @         case WM_MOUSEACTIVATE:
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_DOCK_USER_MOUSEACTIVATE"));
+# @             return MA_ACTIVATE;
+# @         case WM_LBUTTONDOWN:
+# @         case WM_LBUTTONDBLCLK:
+# @         case WM_CONTEXTMENU:
+# @         case WM_RBUTTONDOWN:
+# @         case WM_RBUTTONUP:
+# @             if (ForwardMouseToChild (hWnd, uMsg, wParam, lParam))
+# @                 return 0;
+# @             break;
+# @         case WM_NCDESTROY:
+# @             if (oldProc != NULL)
+# @             {
+# @                 ::SetWindowLongPtr (hWnd, GWLP_WNDPROC, (LONG_PTR)oldProc);
+# @                 ::RemoveProp (hWnd, OldProcProp ());
+# @                 return ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam);
+# @             }
+# @             break;
+# @         }
+# @         return oldProc != NULL ? ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam) : ::DefWindowProc (hWnd, uMsg, wParam, lParam);
+# @     }
+# @ };
+# @
+# @ class CCcIdeDockLayoutManager
+# @ {
+# @ public:
+# @     struct Pane
+# @     {
+# @         HWND hWnd;
+# @         int dock;
+# @         int size;
+# @         int minSize;
+# @         BOOL visible;
+# @     };
+# @
+# @     CCcIdeDockLayoutManager () : m_hParent (NULL) {}
+# @
+# @     BOOL Init (CWnd* pParent)
+# @     {
+# @         m_hParent = (pParent == NULL ? NULL : pParent->GetSafeHwnd ());
+# @         return ::IsWindow (m_hParent);
+# @     }
+# @
+# @     void Clear ()
+# @     {
+# @         m_panes.clear ();
+# @     }
+# @
+# @     int AddPane (CWnd* pWnd, int dock, int size, int minSize, BOOL visible)
+# @     {
+# @         if (pWnd == NULL || !::IsWindow (pWnd->GetSafeHwnd ()))
+# @             return 0;
+# @         if (dock < 1 || dock > 5)
+# @             return 0;
+# @         Pane pane;
+# @         pane.hWnd = pWnd->GetSafeHwnd ();
+# @         pane.dock = dock;
+# @         pane.size = size;
+# @         pane.minSize = minSize;
+# @         pane.visible = visible;
+# @         m_panes.push_back (pane);
+# @         ::ShowWindow (pane.hWnd, visible ? SW_SHOW : SW_HIDE);
+# @         return (int)m_panes.size ();
+# @     }
+# @
+# @     BOOL SetPaneVisible (int id, BOOL visible)
+# @     {
+# @         Pane* pane = GetPane (id);
+# @         if (pane == NULL)
+# @             return FALSE;
+# @         pane->visible = visible;
+# @         if (::IsWindow (pane->hWnd))
+# @             ::ShowWindow (pane->hWnd, visible ? SW_SHOW : SW_HIDE);
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL SetPaneSize (int id, int size)
+# @     {
+# @         Pane* pane = GetPane (id);
+# @         if (pane == NULL)
+# @             return FALSE;
+# @         pane->size = size;
+# @         return TRUE;
+# @     }
+# @
+# @     int GetPaneCount () const
+# @     {
+# @         return (int)m_panes.size ();
+# @     }
+# @
+# @     BOOL Layout (int left, int top, int width, int height)
+# @     {
+# @         if (!::IsWindow (m_hParent))
+# @             return FALSE;
+# @
+# @         CRect rc;
+# @         if (width <= 0 || height <= 0)
+# @         {
+# @             ::GetClientRect (m_hParent, &rc);
+# @         }
+# @         else
+# @         {
+# @             rc.SetRect (left, top, left + width, top + height);
+# @         }
+# @
+# @         for (size_t i = 0; i < m_panes.size (); ++i)
+# @         {
+# @             Pane& pane = m_panes [i];
+# @             if (!pane.visible || !::IsWindow (pane.hWnd))
+# @                 continue;
+# @
+# @             CRect paneRc (rc);
+# @             const int minSize = (pane.minSize < 0 ? 0 : pane.minSize);
+# @             int size = pane.size;
+# @             if (size < minSize)
+# @                 size = minSize;
+# @
+# @             switch (pane.dock)
+# @             {
+# @             case 1:
+# @                 if (size > rc.Width ()) size = rc.Width ();
+# @                 paneRc.right = paneRc.left + size;
+# @                 rc.left = paneRc.right;
+# @                 break;
+# @             case 2:
+# @                 if (size > rc.Height ()) size = rc.Height ();
+# @                 paneRc.bottom = paneRc.top + size;
+# @                 rc.top = paneRc.bottom;
+# @                 break;
+# @             case 3:
+# @                 if (size > rc.Width ()) size = rc.Width ();
+# @                 paneRc.left = paneRc.right - size;
+# @                 rc.right = paneRc.left;
+# @                 break;
+# @             case 4:
+# @                 if (size > rc.Height ()) size = rc.Height ();
+# @                 paneRc.top = paneRc.bottom - size;
+# @                 rc.bottom = paneRc.top;
+# @                 break;
+# @             default:
+# @                 paneRc = rc;
+# @                 break;
+# @             }
+# @
+# @             if (paneRc.Width () < 0) paneRc.right = paneRc.left;
+# @             if (paneRc.Height () < 0) paneRc.bottom = paneRc.top;
+# @             ::SetWindowPos (pane.hWnd, NULL, paneRc.left, paneRc.top, paneRc.Width (), paneRc.Height (),
+# @                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+# @         }
+# @         return TRUE;
+# @     }
+# @
+# @ private:
+# @     Pane* GetPane (int id)
+# @     {
+# @         if (id <= 0 || id > (int)m_panes.size ())
+# @             return NULL;
+# @         return &m_panes [(size_t)id - 1];
+# @     }
+# @
+# @     HWND m_hParent;
+# @     std::vector<Pane> m_panes;
+# @ };
+# @
+# @ enum CCcIdeDockPaneEvent
+# @ {
+# @     CCIDE_DOCK_EVT_VISIBLE_CHANGED = 1,
+# @     CCIDE_DOCK_EVT_SIZE_CHANGED = 2,
+# @     CCIDE_DOCK_EVT_POSITION_CHANGED = 3,
+# @     CCIDE_DOCK_EVT_FLOAT_CHANGED = 4,
+# @     CCIDE_DOCK_EVT_AUTO_HIDE_CHANGED = 5,
+# @     CCIDE_DOCK_EVT_DOCK_ALIGN_CHANGED = 6,
+# @     CCIDE_DOCK_EVT_TITLE_CHANGED = 7,
+# @     CCIDE_DOCK_EVT_FOCUS = 8,
+# @     CCIDE_DOCK_EVT_CLOSING = 9,
+# @     CCIDE_DOCK_EVT_DESTROYING = 10,
+# @     CCIDE_DOCK_EVT_MIN_SIZE_CHANGED = 11,
+# @     CCIDE_DOCK_EVT_DOCK_ENABLE_CHANGED = 12,
+# @     CCIDE_DOCK_EVT_CONTROL_STYLE_CHANGED = 13,
+# @     CCIDE_DOCK_EVT_GRIPPER_CHANGED = 14
+# @ };
+# @
+# @ class ICcIdeDockPaneSink
+# @ {
+# @ public:
+# @     virtual HWND OnCreateChildWnd (INT nLeft, INT nTop, INT nWidth, INT nHeight) = 0;
+# @     virtual void OnDockPaneEvent (INT nEvent, INT nValue1, INT nValue2, INT nValue3, INT nValue4) = 0;
+# @ };
+# @
+# @ enum CCcIdeScrollContainerEvent
+# @ {
+# @     CCIDE_SCROLL_EVT_POS_CHANGED = 1,
+# @     CCIDE_SCROLL_EVT_CONTENT_SIZE_CHANGED = 2,
+# @     CCIDE_SCROLL_EVT_VIEW_SIZE_CHANGED = 3,
+# @     CCIDE_SCROLL_EVT_MOUSE_WHEEL = 4,
+# @     CCIDE_SCROLL_EVT_DESTROYING = 5
+# @ };
+# @
+# @ class ICcIdeScrollContainerSink
+# @ {
+# @ public:
+# @     virtual HWND OnCreateScrollContent (INT nLeft, INT nTop, INT nWidth, INT nHeight) = 0;
+# @     virtual void OnScrollContainerEvent (INT nEvent, INT nValue1, INT nValue2, INT nValue3, INT nValue4) = 0;
+# @ };
+# @
+# @ class CCcIdeScrollContainer : public CWnd
+# @ {
+# @ public:
+# @     CCcIdeScrollContainer () : m_pSink (NULL), m_hContentWnd (NULL), m_nVirtualWidth (0), m_nVirtualHeight (0),
+# @         m_nScrollX (0), m_nScrollY (0), m_nLineStepX (24), m_nLineStepY (24), m_blpEnableH (TRUE), m_blpEnableV (TRUE) {}
+# @
+# @     BOOL CreateContainer (ICcIdeScrollContainerSink* pSink, CWnd* pParentWnd, const RECT& rect, UINT nID,
+# @             INT nVirtualWidth, INT nVirtualHeight, BOOL bEnableHorz, BOOL bEnableVert)
+# @     {
+# @         if (pSink == NULL || pParentWnd == NULL || pParentWnd->GetSafeHwnd () == NULL || GetSafeHwnd () != NULL)
+# @             return FALSE;
+# @
+# @         m_pSink = pSink;
+# @         m_blpEnableH = bEnableHorz;
+# @         m_blpEnableV = bEnableVert;
+# @         m_nVirtualWidth = (nVirtualWidth < 0 ? 0 : nVirtualWidth);
+# @         m_nVirtualHeight = (nVirtualHeight < 0 ? 0 : nVirtualHeight);
+# @
+# @         LPCTSTR lpszClassName = AfxRegisterWndClass (CS_DBLCLKS, ::LoadCursor (NULL, IDC_ARROW),
+# @             (HBRUSH)(COLOR_WINDOW + 1), NULL);
+# @         DWORD dwStyle = WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
+# @         if (m_blpEnableH)
+# @             dwStyle |= WS_HSCROLL;
+# @         if (m_blpEnableV)
+# @             dwStyle |= WS_VSCROLL;
+# @
+# @         if (!CWnd::Create (lpszClassName, _T (""), dwStyle, rect, pParentWnd, nID))
+# @             return FALSE;
+# @
+# @         m_hContentWnd = m_pSink->OnCreateScrollContent (0, 0, m_nVirtualWidth, m_nVirtualHeight);
+# @         if (m_hContentWnd == NULL)
+# @         {
+# @             DestroyWindow ();
+# @             return FALSE;
+# @         }
+# @
+# @         UpdateContentWindow ();
+# @         UpdateScrollBars ();
+# @         return TRUE;
+# @     }
+# @
+# @     HWND GetContentWnd () const
+# @     {
+# @         return m_hContentWnd;
+# @     }
+# @
+# @     INT GetVirtualWidth () const
+# @     {
+# @         return m_nVirtualWidth;
+# @     }
+# @
+# @     INT GetVirtualHeight () const
+# @     {
+# @         return m_nVirtualHeight;
+# @     }
+# @
+# @     INT GetScrollX () const
+# @     {
+# @         return m_nScrollX;
+# @     }
+# @
+# @     INT GetScrollY () const
+# @     {
+# @         return m_nScrollY;
+# @     }
+# @
+# @     BOOL IsHorzScrollEnabled () const
+# @     {
+# @         return m_blpEnableH;
+# @     }
+# @
+# @     BOOL IsVertScrollEnabled () const
+# @     {
+# @         return m_blpEnableV;
+# @     }
+# @
+# @     INT GetViewWidth ()
+# @     {
+# @         CRect rectClient;
+# @         if (GetSafeHwnd () == NULL)
+# @             return 0;
+# @         GetClientRect (&rectClient);
+# @         return rectClient.Width ();
+# @     }
+# @
+# @     INT GetViewHeight ()
+# @     {
+# @         CRect rectClient;
+# @         if (GetSafeHwnd () == NULL)
+# @             return 0;
+# @         GetClientRect (&rectClient);
+# @         return rectClient.Height ();
+# @     }
+# @
+# @     BOOL SetVirtualSize (INT nWidth, INT nHeight)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         m_nVirtualWidth = (nWidth < 0 ? 0 : nWidth);
+# @         m_nVirtualHeight = (nHeight < 0 ? 0 : nHeight);
+# @         ClampScrollPos ();
+# @         UpdateContentWindow ();
+# @         UpdateScrollBars ();
+# @         Notify (CCIDE_SCROLL_EVT_CONTENT_SIZE_CHANGED, m_nVirtualWidth, m_nVirtualHeight, 0, 0);
+# @         Notify (CCIDE_SCROLL_EVT_POS_CHANGED, m_nScrollX, m_nScrollY, 4, 0);
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL SetScrollEnable (BOOL bEnableHorz, BOOL bEnableVert)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         m_blpEnableH = bEnableHorz;
+# @         m_blpEnableV = bEnableVert;
+# @         ModifyStyle (WS_HSCROLL | WS_VSCROLL, (m_blpEnableH ? WS_HSCROLL : 0) | (m_blpEnableV ? WS_VSCROLL : 0));
+# @         if (!m_blpEnableH)
+# @             m_nScrollX = 0;
+# @         if (!m_blpEnableV)
+# @             m_nScrollY = 0;
+# @         ClampScrollPos ();
+# @         UpdateContentWindow ();
+# @         UpdateScrollBars ();
+# @         Notify (CCIDE_SCROLL_EVT_POS_CHANGED, m_nScrollX, m_nScrollY, 4, 0);
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL SetScrollStep (INT nLineStepX, INT nLineStepY)
+# @     {
+# @         m_nLineStepX = (nLineStepX <= 0 ? 1 : nLineStepX);
+# @         m_nLineStepY = (nLineStepY <= 0 ? 1 : nLineStepY);
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL SetScrollPosValue (INT nX, INT nY, INT nSource)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         const INT nOldX = m_nScrollX;
+# @         const INT nOldY = m_nScrollY;
+# @         m_nScrollX = nX;
+# @         m_nScrollY = nY;
+# @         ClampScrollPos ();
+# @         UpdateContentWindow ();
+# @         UpdateScrollBars ();
+# @         if (nOldX != m_nScrollX || nOldY != m_nScrollY)
+# @             Notify (CCIDE_SCROLL_EVT_POS_CHANGED, m_nScrollX, m_nScrollY, nSource, 0);
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL ScrollBy (INT nDeltaX, INT nDeltaY, INT nSource)
+# @     {
+# @         return SetScrollPosValue (m_nScrollX + nDeltaX, m_nScrollY + nDeltaY, nSource);
+# @     }
+# @
+# @     BOOL RecalcScroll ()
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         ClampScrollPos ();
+# @         UpdateContentWindow ();
+# @         UpdateScrollBars ();
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL MoveContainer (INT nLeft, INT nTop, INT nWidth, INT nHeight)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         if (nWidth < 0)
+# @             nWidth = 0;
+# @         if (nHeight < 0)
+# @             nHeight = 0;
+# @         MoveWindow (nLeft, nTop, nWidth, nHeight, TRUE);
+# @         ClampScrollPos ();
+# @         UpdateContentWindow ();
+# @         UpdateScrollBars ();
+# @         return TRUE;
+# @     }
+# @
+# @ protected:
+# @     virtual LRESULT WindowProc (UINT message, WPARAM wParam, LPARAM lParam) override
+# @     {
+# @         switch (message)
+# @         {
+# @         case WM_SIZE:
+# @             {
+# @                 LRESULT lResult = CWnd::WindowProc (message, wParam, lParam);
+# @                 ClampScrollPos ();
+# @                 UpdateContentWindow ();
+# @                 UpdateScrollBars ();
+# @                 Notify (CCIDE_SCROLL_EVT_VIEW_SIZE_CHANGED, LOWORD (lParam), HIWORD (lParam), (INT)wParam, 0);
+# @                 return lResult;
+# @             }
+# @         case WM_HSCROLL:
+# @             HandleScroll (SB_HORZ, LOWORD (wParam), HIWORD (wParam));
+# @             return 0;
+# @         case WM_VSCROLL:
+# @             HandleScroll (SB_VERT, LOWORD (wParam), HIWORD (wParam));
+# @             return 0;
+# @         case WM_MOUSEWHEEL:
+# @             {
+# @                 const INT nDelta = (short)HIWORD (wParam);
+# @                 Notify (CCIDE_SCROLL_EVT_MOUSE_WHEEL, nDelta, m_nScrollX, m_nScrollY, 0);
+# @                 if (m_blpEnableV)
+# @                     SetScrollPosValue (m_nScrollX, m_nScrollY - (nDelta / WHEEL_DELTA) * m_nLineStepY * 3, 3);
+# @                 else if (m_blpEnableH)
+# @                     SetScrollPosValue (m_nScrollX - (nDelta / WHEEL_DELTA) * m_nLineStepX * 3, m_nScrollY, 3);
+# @                 return 0;
+# @             }
+# @         case WM_DESTROY:
+# @             Notify (CCIDE_SCROLL_EVT_DESTROYING, 0, 0, 0, 0);
+# @             break;
+# @         }
+# @         return CWnd::WindowProc (message, wParam, lParam);
+# @     }
+# @
+# @     void HandleScroll (INT nBar, INT nCode, INT nTrackPos)
+# @     {
+# @         INT nNewX = m_nScrollX;
+# @         INT nNewY = m_nScrollY;
+# @         CRect rectClient;
+# @         GetClientRect (&rectClient);
+# @
+# @         if (nBar == SB_HORZ)
+# @         {
+# @             switch (nCode)
+# @             {
+# @             case SB_LINELEFT:      nNewX -= m_nLineStepX; break;
+# @             case SB_LINERIGHT:     nNewX += m_nLineStepX; break;
+# @             case SB_PAGELEFT:      nNewX -= rectClient.Width (); break;
+# @             case SB_PAGERIGHT:     nNewX += rectClient.Width (); break;
+# @             case SB_THUMBTRACK:
+# @             case SB_THUMBPOSITION: nNewX = nTrackPos; break;
+# @             case SB_LEFT:          nNewX = 0; break;
+# @             case SB_RIGHT:         nNewX = MaxScrollX (); break;
+# @             default: return;
+# @             }
+# @         }
+# @         else
+# @         {
+# @             switch (nCode)
+# @             {
+# @             case SB_LINEUP:        nNewY -= m_nLineStepY; break;
+# @             case SB_LINEDOWN:      nNewY += m_nLineStepY; break;
+# @             case SB_PAGEUP:        nNewY -= rectClient.Height (); break;
+# @             case SB_PAGEDOWN:      nNewY += rectClient.Height (); break;
+# @             case SB_THUMBTRACK:
+# @             case SB_THUMBPOSITION: nNewY = nTrackPos; break;
+# @             case SB_TOP:           nNewY = 0; break;
+# @             case SB_BOTTOM:        nNewY = MaxScrollY (); break;
+# @             default: return;
+# @             }
+# @         }
+# @
+# @         SetScrollPosValue (nNewX, nNewY, (nBar == SB_HORZ ? 1 : 2));
+# @     }
+# @
+# @     INT MaxScrollX ()
+# @     {
+# @         CRect rectClient;
+# @         if (GetSafeHwnd () == NULL || !m_blpEnableH)
+# @             return 0;
+# @         GetClientRect (&rectClient);
+# @         const INT nMax = m_nVirtualWidth - rectClient.Width ();
+# @         return (nMax > 0 ? nMax : 0);
+# @     }
+# @
+# @     INT MaxScrollY ()
+# @     {
+# @         CRect rectClient;
+# @         if (GetSafeHwnd () == NULL || !m_blpEnableV)
+# @             return 0;
+# @         GetClientRect (&rectClient);
+# @         const INT nMax = m_nVirtualHeight - rectClient.Height ();
+# @         return (nMax > 0 ? nMax : 0);
+# @     }
+# @
+# @     void ClampScrollPos ()
+# @     {
+# @         const INT nMaxX = MaxScrollX ();
+# @         const INT nMaxY = MaxScrollY ();
+# @         if (m_nScrollX < 0) m_nScrollX = 0;
+# @         if (m_nScrollY < 0) m_nScrollY = 0;
+# @         if (m_nScrollX > nMaxX) m_nScrollX = nMaxX;
+# @         if (m_nScrollY > nMaxY) m_nScrollY = nMaxY;
+# @     }
+# @
+# @     void UpdateScrollBars ()
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return;
+# @
+# @         CRect rectClient;
+# @         GetClientRect (&rectClient);
+# @
+# @         SCROLLINFO si;
+# @         ZeroMemory (&si, sizeof (si));
+# @         si.cbSize = sizeof (si);
+# @         si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+# @
+# @         si.nMin = 0;
+# @         si.nMax = (m_nVirtualWidth > 0 ? m_nVirtualWidth - 1 : 0);
+# @         si.nPage = (UINT)(rectClient.Width () > 0 ? rectClient.Width () : 0);
+# @         si.nPos = m_nScrollX;
+# @         ::SetScrollInfo (m_hWnd, SB_HORZ, &si, TRUE);
+# @         ShowScrollBar (SB_HORZ, m_blpEnableH && MaxScrollX () > 0);
+# @
+# @         si.nMin = 0;
+# @         si.nMax = (m_nVirtualHeight > 0 ? m_nVirtualHeight - 1 : 0);
+# @         si.nPage = (UINT)(rectClient.Height () > 0 ? rectClient.Height () : 0);
+# @         si.nPos = m_nScrollY;
+# @         ::SetScrollInfo (m_hWnd, SB_VERT, &si, TRUE);
+# @         ShowScrollBar (SB_VERT, m_blpEnableV && MaxScrollY () > 0);
+# @     }
+# @
+# @     void UpdateContentWindow ()
+# @     {
+# @         if (m_hContentWnd == NULL || !::IsWindow (m_hContentWnd))
+# @             return;
+# @
+# @         CRect rectClient;
+# @         GetClientRect (&rectClient);
+# @         const INT nContentWidth = (m_nVirtualWidth > rectClient.Width () ? m_nVirtualWidth : rectClient.Width ());
+# @         const INT nContentHeight = (m_nVirtualHeight > rectClient.Height () ? m_nVirtualHeight : rectClient.Height ());
+# @         ::SetWindowPos (m_hContentWnd, NULL, -m_nScrollX, -m_nScrollY, nContentWidth, nContentHeight,
+# @             SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+# @     }
+# @
+# @     void Notify (INT nEvent, INT nValue1, INT nValue2, INT nValue3, INT nValue4)
+# @     {
+# @         if (m_pSink != NULL)
+# @             m_pSink->OnScrollContainerEvent (nEvent, nValue1, nValue2, nValue3, nValue4);
+# @     }
+# @
+# @ protected:
+# @     ICcIdeScrollContainerSink* m_pSink;
+# @     HWND m_hContentWnd;
+# @     INT m_nVirtualWidth;
+# @     INT m_nVirtualHeight;
+# @     INT m_nScrollX;
+# @     INT m_nScrollY;
+# @     INT m_nLineStepX;
+# @     INT m_nLineStepY;
+# @     BOOL m_blpEnableH;
+# @     BOOL m_blpEnableV;
+# @ };
+# @
+# @ class CCcIdeWndBarEx : public CDockablePane
+# @ {
+# @ public:
+# @     CCcIdeWndBarEx () : m_pSink (NULL), m_hUserWnd (NULL), m_blpLastVisible (FALSE),
+# @         m_blpLastFloating (FALSE), m_blpLastAutoHide (FALSE), m_blpHasGripper (FALSE),
+# @         m_dwLastAlignment (0) {}
+# @
+# @     HWND GetUserWnd () const
+# @     {
+# @         return m_hUserWnd;
+# @     }
+# @
+# @     void Redraw ()
+# @     {
+# @         if (m_hUserWnd != NULL)
+# @             ::InvalidateRect (m_hUserWnd, NULL, TRUE);
+# @     }
+# @
+# @     BOOL CreateVolBar (ICcIdeDockPaneSink* pSink, LPCTSTR lpszCaption, CWnd* pParentWnd, const RECT& rect,
+# @             BOOL bHasGripper, UINT nID, DWORD dwStyle)
+# @     {
+# @         ASSERT (pSink != NULL && m_hUserWnd == NULL);
+# @         CCcIdeDockMouseTraceHook::Install ();
+# @         m_pSink = pSink;
+# @         m_blpHasGripper = bHasGripper;
+# @
+# @         if (CDockablePane::Create (_T (""), pParentWnd, rect, bHasGripper, nID, dwStyle))
+# @         {
+# @             if (lpszCaption != NULL && lpszCaption [0] != 0)
+# @                 SetWindowText (lpszCaption);
+# @             CRect rtClient;
+# @             GetClientRect (&rtClient);
+# @             m_hUserWnd = m_pSink->OnCreateChildWnd (rtClient.left, rtClient.top, rtClient.Width (), rtClient.Height ());
+# @             if (m_hUserWnd == NULL)
+# @                 DestroyWindow ();
+# @             else
+# @             {
+# @                 CCcIdeDockUserWndHook::Install (m_hUserWnd);
+# @                 ::SetProp (GetSafeHwnd (), _T ("ccide_dock_pane_user_wnd"), (HANDLE)m_hUserWnd);
+# @                 DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_DOCK_CREATE_USER_HWND"));
+# @                 DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)m_hUserWnd);
+# @                 RememberState ();
+# @             }
+# @         }
+# @
+# @         return (m_hUserWnd != NULL);
+# @     }
+# @
+# @     BOOL SetVisibleState (BOOL bVisible)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         CFrameWndEx* pFrame = DYNAMIC_DOWNCAST (CFrameWndEx, GetDockSiteFrameWnd ());
+# @         if (pFrame == NULL)
+# @             pFrame = DYNAMIC_DOWNCAST (CFrameWndEx, GetTopLevelFrame ());
+# @         if (pFrame != NULL)
+# @             pFrame->ShowPane (this, bVisible, FALSE, FALSE);
+# @         else
+# @             ShowPane (bVisible, FALSE, FALSE);
+# @         CheckStateChange ();
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL SetAutoHideState (BOOL bAutoHide, DWORD dwAlignment)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         if ((dwAlignment & CBRS_ALIGN_ANY) == 0)
+# @             dwAlignment = GetCurrentAlignment ();
+# @         if ((dwAlignment & CBRS_ALIGN_ANY) == 0)
+# @             dwAlignment = CBRS_ALIGN_LEFT;
+# @         SetAutoHideMode (bAutoHide, dwAlignment);
+# @         CheckStateChange ();
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL DockToCurrentFrame (DWORD dwAlignment)
+# @     {
+# @         CMDIFrameWndEx* pFrame = DYNAMIC_DOWNCAST (CMDIFrameWndEx, GetDockSiteFrameWnd ());
+# @         if (pFrame == NULL)
+# @             pFrame = DYNAMIC_DOWNCAST (CMDIFrameWndEx, GetTopLevelFrame ());
+# @         return DockToFrame (pFrame, dwAlignment);
+# @     }
+# @
+# @     BOOL FloatAt (INT nLeft, INT nTop, INT nWidth, INT nHeight)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         if (nWidth <= 0)
+# @             nWidth = 320;
+# @         if (nHeight <= 0)
+# @             nHeight = 240;
+# @         CRect rectFloat (nLeft, nTop, nLeft + nWidth, nTop + nHeight);
+# @         const BOOL bOK = FloatPane (rectFloat, DM_SHOW, true);
+# @         CheckStateChange ();
+# @         return bOK;
+# @     }
+# @
+# @     BOOL MoveFloatingRect (INT nLeft, INT nTop, INT nWidth, INT nHeight)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         CRect rectNew (nLeft, nTop, nLeft + nWidth, nTop + nHeight);
+# @         SetWindowPos (NULL, rectNew.left, rectNew.top, rectNew.Width (), rectNew.Height (),
+# @             SWP_NOZORDER | SWP_NOACTIVATE);
+# @         CheckStateChange ();
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL DockNextToPane (CCcIdeWndBarEx* pTargetPane, DWORD dwAlignment)
+# @     {
+# @         if (GetSafeHwnd () == NULL || pTargetPane == NULL || pTargetPane->GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         const BOOL bOK = DockToWindow (pTargetPane, dwAlignment, NULL);
+# @         CheckStateChange ();
+# @         pTargetPane->CheckStateChange ();
+# @         return bOK;
+# @     }
+# @
+# @     BOOL AttachAsTabToPane (CCcIdeWndBarEx* pTargetPane, BOOL bSetActive)
+# @     {
+# @         if (GetSafeHwnd () == NULL || pTargetPane == NULL || pTargetPane->GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         CDockablePane* pTabbedBar = pTargetPane;
+# @         CDockablePane* pResult = AttachToTabWnd (pTargetPane, DM_SHOW, bSetActive, &pTabbedBar);
+# @         InstallTabbedPaneClickHook ();
+# @         pTargetPane->InstallTabbedPaneClickHook ();
+# @         if (bSetActive)
+# @             ActivatePaneTab ();
+# @         else
+# @             pTargetPane->ActivatePaneTab ();
+# @         CheckStateChange ();
+# @         pTargetPane->CheckStateChange ();
+# @         return (pResult != NULL);
+# @     }
+# @
+# @     BOOL ActivatePaneTab ()
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @
+# @         ShowPane (TRUE, FALSE, TRUE);
+# @         CBaseTabbedPane* pTabbedPane = GetParentTabbedPane ();
+# @         if (pTabbedPane != NULL)
+# @         {
+# @             pTabbedPane->ShowTab (this, TRUE, FALSE, TRUE);
+# @             CMFCBaseTabCtrl* pTabWnd = pTabbedPane->GetUnderlyingWindow ();
+# @             if (pTabWnd != NULL)
+# @             {
+# @                 CCcIdeDockTabCtrlHook::Install (pTabWnd);
+# @                 CCcIdeDockTabbedBarHook::Install (pTabbedPane, pTabWnd);
+# @                 INT nTab = pTabWnd->GetTabFromHwnd (GetSafeHwnd ());
+# @                 if (nTab >= 0)
+# @                 {
+# @                     pTabWnd->ShowTab (nTab, TRUE, TRUE, TRUE);
+# @                     pTabWnd->SetActiveTab (nTab);
+# @                     pTabWnd->EnsureVisible (nTab);
+# @                     pTabWnd->Invalidate ();
+# @                 }
+# @             }
+# @         }
+# @         SetFocus ();
+# @         BringWindowToTop ();
+# @         RedrawWindow (NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+# @         return TRUE;
+# @     }
+# @
+# @     void InstallTabbedPaneClickHook ()
+# @     {
+# @         CBaseTabbedPane* pTabbedPane = GetParentTabbedPane ();
+# @         if (pTabbedPane == NULL)
+# @             return;
+# @         CMFCBaseTabCtrl* pTabWnd = pTabbedPane->GetUnderlyingWindow ();
+# @         CCcIdeDockTabCtrlHook::Install (pTabWnd);
+# @         CCcIdeDockTabbedBarHook::Install (pTabbedPane, pTabWnd);
+# @     }
+# @
+# @     BOOL UndockFromFrame (BOOL bDelay)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         UndockPane (bDelay);
+# @         CheckStateChange ();
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL SavePaneState (LPCTSTR lpszProfileName, INT nIndex, UINT nID)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         return SaveState (lpszProfileName, nIndex, nID);
+# @     }
+# @
+# @     BOOL LoadPaneState (LPCTSTR lpszProfileName, INT nIndex, UINT nID)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         const BOOL bOK = LoadState (lpszProfileName, nIndex, nID);
+# @         CheckStateChange ();
+# @         return bOK;
+# @     }
+# @
+# @     BOOL DockToFrame (CMDIFrameWndEx* pParentFrame, DWORD dwAlignment)
+# @     {
+# @         if (GetSafeHwnd () == NULL || pParentFrame == NULL || pParentFrame->GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @
+# @         UINT nDockBarID = AFX_IDW_DOCKBAR_LEFT;
+# @         if ((dwAlignment & CBRS_ALIGN_RIGHT) != 0)
+# @             nDockBarID = AFX_IDW_DOCKBAR_RIGHT;
+# @         else if ((dwAlignment & CBRS_ALIGN_TOP) != 0)
+# @             nDockBarID = AFX_IDW_DOCKBAR_TOP;
+# @         else if ((dwAlignment & CBRS_ALIGN_BOTTOM) != 0)
+# @             nDockBarID = AFX_IDW_DOCKBAR_BOTTOM;
+# @
+# @         pParentFrame->DockPane (this, nDockBarID, NULL);
+# @         CheckStateChange ();
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL SetDockEnable (DWORD dwAlignment)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         EnableDocking (dwAlignment);
+# @         Notify (CCIDE_DOCK_EVT_DOCK_ENABLE_CHANGED, (INT)dwAlignment, 0, 0, 0);
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL SetMinTrackSize (INT nWidth, INT nHeight)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         SetMinSize (CSize (nWidth, nHeight));
+# @         Notify (CCIDE_DOCK_EVT_MIN_SIZE_CHANGED, nWidth, nHeight, 0, 0);
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL GetMinTrackSize (INT& nWidth, INT& nHeight) const
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         CSize sizeMin;
+# @         GetMinSize (sizeMin);
+# @         nWidth = sizeMin.cx;
+# @         nHeight = sizeMin.cy;
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL SetControlStyleFlag (DWORD dwFlag, BOOL bEnable)
+# @     {
+# @         DWORD dwStyle = GetControlBarStyle ();
+# @         if (bEnable)
+# @             dwStyle |= dwFlag;
+# @         else
+# @             dwStyle &= ~dwFlag;
+# @         SetControlBarStyle (dwStyle);
+# @         Notify (CCIDE_DOCK_EVT_CONTROL_STYLE_CHANGED, (INT)dwStyle, (INT)dwFlag, bEnable, 0);
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL HasControlStyleFlag (DWORD dwFlag) const
+# @     {
+# @         return ((GetControlBarStyle () & dwFlag) != 0);
+# @     }
+# @
+# @     BOOL SetGripperState (BOOL bHasGripper)
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return FALSE;
+# @         m_blpHasGripper = bHasGripper;
+# @         EnableGripper (bHasGripper);
+# @         Notify (CCIDE_DOCK_EVT_GRIPPER_CHANGED, bHasGripper, 0, 0, 0);
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL HasGripper () const
+# @     {
+# @         return m_blpHasGripper;
+# @     }
+# @
+# @     INT GetRectValue (INT nIndex) const
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return 0;
+# @         CRect rectWnd;
+# @         GetWindowRect (&rectWnd);
+# @         if (nIndex == 1)
+# @             return rectWnd.top;
+# @         if (nIndex == 2)
+# @             return rectWnd.Width ();
+# @         if (nIndex == 3)
+# @             return rectWnd.Height ();
+# @         return rectWnd.left;
+# @     }
+# @
+# @     static void sDockControls (const INT_P npNumControls, ...)
+# @     {
+# @         va_list argList;
+# @         va_start (argList, npNumControls);
+# @
+# @         CDockablePane* pTabbedBar = NULL;
+# @         for (INT_P npIndex = 0; npIndex < npNumControls; npIndex++)
+# @         {
+# @             CDockablePane* pControl = va_arg (argList, CDockablePane*);
+# @             if (pControl != NULL && pControl->GetSafeHwnd () != NULL)
+# @             {
+# @                 if (pTabbedBar == NULL)
+# @                     pTabbedBar = pControl;
+# @                 else
+# @                     pControl->AttachToTabWnd (pTabbedBar, DM_SHOW, FALSE, &pTabbedBar);
+# @             }
+# @         }
+# @
+# @         va_end (argList);
+# @     }
+# @
+# @ protected:
+# @     BOOL IsSolutionPane ()
+# @     {
+# @         CString strTitle;
+# @         GetWindowText (strTitle);
+# @         return (strTitle.Compare (_T ("解决方案")) == 0 || strTitle.Find (_T ("解决方案")) >= 0);
+# @     }
+# @
+# @     HWND FindTreeChildAtPoint (HWND hParent, POINT ptScreen) const
+# @     {
+# @         if (hParent == NULL || !::IsWindow (hParent))
+# @             return NULL;
+# @         TCHAR szClass [96];
+# @         ZeroMemory (szClass, sizeof (szClass));
+# @         ::GetClassName (hParent, szClass, NUM_CHARS_OF_TEXT (szClass));
+# @         if (::lstrcmpi (szClass, _T ("SysTreeView32")) == 0)
+# @         {
+# @             RECT rcTree;
+# @             ::GetWindowRect (hParent, &rcTree);
+# @             if (::PtInRect (&rcTree, ptScreen))
+# @                 return hParent;
+# @         }
+# @         HWND hChild = ::GetWindow (hParent, GW_CHILD);
+# @         while (hChild != NULL)
+# @         {
+# @             RECT rcChild;
+# @             ::GetWindowRect (hChild, &rcChild);
+# @             if (::PtInRect (&rcChild, ptScreen))
+# @             {
+# @                 HWND hTree = FindTreeChildAtPoint (hChild, ptScreen);
+# @                 if (hTree != NULL)
+# @                     return hTree;
+# @             }
+# @             hChild = ::GetWindow (hChild, GW_HWNDNEXT);
+# @         }
+# @         return NULL;
+# @     }
+# @
+# @     void SelectTreeItemAtPoint (POINT ptScreen) const
+# @     {
+# @         HWND hTree = FindTreeChildAtPoint (m_hUserWnd, ptScreen);
+# @         if (hTree == NULL)
+# @             return;
+# @         POINT ptTree = ptScreen;
+# @         ::ScreenToClient (hTree, &ptTree);
+# @         TVHITTESTINFO hit;
+# @         ZeroMemory (&hit, sizeof (hit));
+# @         hit.pt = ptTree;
+# @         HTREEITEM hItem = (HTREEITEM)::SendMessage (hTree, TVM_HITTEST, 0, (LPARAM)&hit);
+# @         if (hItem != NULL)
+# @             ::SendMessage (hTree, TVM_SELECTITEM, TVGN_CARET, (LPARAM)hItem);
+# @     }
+# @
+# @     BOOL PopupSolutionTreeNativeMenu (POINT ptScreen)
+# @     {
+# @         if (!IsSolutionPane () || m_hUserWnd == NULL || !::IsWindow (m_hUserWnd))
+# @             return FALSE;
+# @         RECT rcUser;
+# @         ::GetWindowRect (m_hUserWnd, &rcUser);
+# @         if (!::PtInRect (&rcUser, ptScreen))
+# @             return FALSE;
+# @
+# @         DWORD dwNow = ::GetTickCount ();
+# @         DWORD_PTR npLastTick = (DWORD_PTR)::GetProp (GetSafeHwnd (), _T ("ccide_solution_pane_native_last_popup"));
+# @         if (npLastTick != 0 && dwNow - (DWORD)npLastTick < 200)
+# @             return TRUE;
+# @         ::SetProp (GetSafeHwnd (), _T ("ccide_solution_pane_native_last_popup"), (HANDLE)(DWORD_PTR)dwNow);
+# @
+# @         SelectTreeItemAtPoint (ptScreen);
+# @
+# @         HMENU hMenu = ::CreatePopupMenu ();
+# @         if (hMenu == NULL)
+# @             return TRUE;
+# @
+# @         ::AppendMenu (hMenu, MF_STRING, 30001, _T ("刷新"));
+# @         ::AppendMenu (hMenu, MF_SEPARATOR, 0, NULL);
+# @         ::AppendMenu (hMenu, MF_STRING, 30006, _T ("新建窗口"));
+# @         ::AppendMenu (hMenu, MF_STRING, 30008, _T ("创建模块"));
+# @         ::AppendMenu (hMenu, MF_STRING, 30009, _T ("配置项目模块"));
+# @         ::AppendMenu (hMenu, MF_STRING, 30010, _T ("重新引入模块"));
+# @         ::AppendMenu (hMenu, MF_STRING, 30011, _T ("位置调整"));
+# @         ::AppendMenu (hMenu, MF_SEPARATOR, 0, NULL);
+# @         ::AppendMenu (hMenu, MF_STRING, 30004, _T ("生成项目"));
+# @         ::AppendMenu (hMenu, MF_STRING, 30005, _T ("设为启动项目"));
+# @         ::AppendMenu (hMenu, MF_STRING, 30007, _T ("重命名"));
+# @         ::AppendMenu (hMenu, MF_STRING, 30002, _T ("打开所在文件夹"));
+# @         ::AppendMenu (hMenu, MF_STRING, 30003, _T ("删除"));
+# @
+# @         UINT nCmd = ::TrackPopupMenu (hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, ptScreen.x, ptScreen.y, 0, GetSafeHwnd (), NULL);
+# @         ::DestroyMenu (hMenu);
+# @         if (nCmd != 0)
+# @         {
+# @             CWnd* pMain = AfxGetMainWnd ();
+# @             HWND hTarget = (pMain != NULL && pMain->GetSafeHwnd () != NULL) ? pMain->GetSafeHwnd () : ::GetAncestor (GetSafeHwnd (), GA_ROOT);
+# @             if (hTarget != NULL && ::IsWindow (hTarget))
+# @                 ::SendMessage (hTarget, WM_COMMAND, MAKEWPARAM (nCmd, 0), (LPARAM)GetSafeHwnd ());
+# @         }
+# @         return TRUE;
+# @     }
+# @
+# @     virtual void OnContextMenu (CWnd* pWnd, CPoint point)
+# @     {
+# @         if (m_hUserWnd != NULL && ::IsWindow (m_hUserWnd))
+# @         {
+# @             if (PopupSolutionTreeNativeMenu (point))
+# @                 return;
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_DOCK_SUPPRESS_CONTEXT_MENU"));
+# @             return;
+# @         }
+# @         CDockablePane::OnContextMenu (pWnd, point);
+# @     }
+# @
+# @     virtual LRESULT WindowProc (UINT message, WPARAM wParam, LPARAM lParam) override
+# @     {
+# @         if (message == WM_CLOSE)
+# @             Notify (CCIDE_DOCK_EVT_CLOSING, 0, 0, 0, 0);
+# @         else if (message == WM_DESTROY)
+# @         {
+# @             ::RemoveProp (GetSafeHwnd (), _T ("ccide_dock_pane_user_wnd"));
+# @             ::RemoveProp (GetSafeHwnd (), _T ("ccide_solution_pane_native_last_popup"));
+# @             Notify (CCIDE_DOCK_EVT_DESTROYING, 0, 0, 0, 0);
+# @         }
+# @         else if (message == WM_MOUSEACTIVATE)
+# @         {
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_DOCK_PANE_MOUSEACTIVATE"));
+# @             return MA_ACTIVATE;
+# @         }
+# @         else if ((message == WM_CONTEXTMENU || message == WM_RBUTTONUP) && m_hUserWnd != NULL)
+# @         {
+# @             POINT ptScreen;
+# @             if (message == WM_CONTEXTMENU && lParam != (LPARAM)-1)
+# @             {
+# @                 ptScreen.x = GET_X_LPARAM (lParam);
+# @                 ptScreen.y = GET_Y_LPARAM (lParam);
+# @             }
+# @             else
+# @             {
+# @                 ::GetCursorPos (&ptScreen);
+# @             }
+# @             RECT rcUser;
+# @             ::GetWindowRect (m_hUserWnd, &rcUser);
+# @             if (::PtInRect (&rcUser, ptScreen))
+# @             {
+# @                 if (PopupSolutionTreeNativeMenu (ptScreen))
+# @                     return 0;
+# @                 POINT ptUser = ptScreen;
+# @                 ::ScreenToClient (m_hUserWnd, &ptUser);
+# @                 if (CCcIdeDockUserWndHook::ForwardMouse (m_hUserWnd, message, wParam, MAKELPARAM (ptUser.x, ptUser.y)))
+# @                     return 0;
+# @                 return 0;
+# @             }
+# @         }
+# @         else if ((message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK || message == WM_RBUTTONDOWN) && m_hUserWnd != NULL)
+# @         {
+# @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_DOCK_PANE_MOUSE"));
+# @             DebugTrace (FALSE, 0, 0, _T ("n"), (INT)message);
+# @             POINT pt;
+# @             pt.x = GET_X_LPARAM (lParam);
+# @             pt.y = GET_Y_LPARAM (lParam);
+# @             ::MapWindowPoints (GetSafeHwnd (), m_hUserWnd, &pt, 1);
+# @             if (CCcIdeDockUserWndHook::ForwardMouse (m_hUserWnd, message, wParam, MAKELPARAM (pt.x, pt.y)))
+# @                 return 0;
+# @         }
+# @
+# @         LRESULT lResult = CDockablePane::WindowProc (message, wParam, lParam);
+# @
+# @         switch (message)
+# @         {
+# @         case WM_SIZE:
+# @             AdjustLayout ();
+# @             Notify (CCIDE_DOCK_EVT_SIZE_CHANGED, LOWORD (lParam), HIWORD (lParam), (INT)wParam, 0);
+# @             break;
+# @         case WM_SETFOCUS:
+# @             if (m_hUserWnd != NULL)
+# @                 ::SetFocus (m_hUserWnd);
+# @             Notify (CCIDE_DOCK_EVT_FOCUS, 0, 0, 0, 0);
+# @             break;
+# @         case WM_SHOWWINDOW:
+# @             CheckStateChange ();
+# @             break;
+# @         case WM_WINDOWPOSCHANGED:
+# @             Notify (CCIDE_DOCK_EVT_POSITION_CHANGED, 0, 0, 0, 0);
+# @             CheckStateChange ();
+# @             break;
+# @         case WM_SETTEXT:
+# @             Notify (CCIDE_DOCK_EVT_TITLE_CHANGED, 0, 0, 0, 0);
+# @             break;
+# @         }
+# @
+# @         return lResult;
+# @     }
+# @
+# @     void AdjustLayout ()
+# @     {
+# @         if (m_hUserWnd == NULL)
+# @             return;
+# @
+# @         CRect rectClient;
+# @         GetClientRect (rectClient);
+# @         ::SetWindowPos (m_hUserWnd, NULL, rectClient.left, rectClient.top,
+# @             rectClient.Width (), rectClient.Height (), SWP_NOACTIVATE | SWP_NOZORDER);
+# @     }
+# @
+# @     void Notify (INT nEvent, INT nValue1, INT nValue2, INT nValue3, INT nValue4)
+# @     {
+# @         if (m_pSink != NULL)
+# @             m_pSink->OnDockPaneEvent (nEvent, nValue1, nValue2, nValue3, nValue4);
+# @     }
+# @
+# @     void RememberState ()
+# @     {
+# @         m_blpLastVisible = IsVisible ();
+# @         m_blpLastFloating = IsFloating ();
+# @         m_blpLastAutoHide = IsAutoHideMode ();
+# @         m_dwLastAlignment = GetCurrentAlignment ();
+# @     }
+# @
+# @     void CheckStateChange ()
+# @     {
+# @         if (GetSafeHwnd () == NULL)
+# @             return;
+# @
+# @         const BOOL blpVisible = IsVisible ();
+# @         const BOOL blpFloating = IsFloating ();
+# @         const BOOL blpAutoHide = IsAutoHideMode ();
+# @         const DWORD dwAlignment = GetCurrentAlignment ();
+# @
+# @         if (blpVisible != m_blpLastVisible)
+# @             Notify (CCIDE_DOCK_EVT_VISIBLE_CHANGED, blpVisible, 0, 0, 0);
+# @         if (blpFloating != m_blpLastFloating)
+# @             Notify (CCIDE_DOCK_EVT_FLOAT_CHANGED, blpFloating, 0, 0, 0);
+# @         if (blpAutoHide != m_blpLastAutoHide)
+# @             Notify (CCIDE_DOCK_EVT_AUTO_HIDE_CHANGED, blpAutoHide, 0, 0, 0);
+# @         if (dwAlignment != m_dwLastAlignment)
+# @             Notify (CCIDE_DOCK_EVT_DOCK_ALIGN_CHANGED, (INT)dwAlignment, 0, 0, 0);
+# @
+# @         m_blpLastVisible = blpVisible;
+# @         m_blpLastFloating = blpFloating;
+# @         m_blpLastAutoHide = blpAutoHide;
+# @         m_dwLastAlignment = dwAlignment;
+# @     }
+# @
+# @ protected:
+# @     ICcIdeDockPaneSink* m_pSink;
+# @     HWND m_hUserWnd;
+# @     BOOL m_blpLastVisible;
+# @     BOOL m_blpLastFloating;
+# @     BOOL m_blpLastAutoHide;
+# @     BOOL m_blpHasGripper;
+# @     DWORD m_dwLastAlignment;
+# @ };
+# @ </include>
+# @ </global>
+
+类 停靠窗口位置 <公开 注释 = "停靠窗口在父窗口客户区中的停靠位置." @常量类 = 整数>
+{
+    常量 左边 <公开 值 = 1>
+    常量 顶边 <公开 值 = 2>
+    常量 右边 <公开 值 = 3>
+    常量 底边 <公开 值 = 4>
+    常量 充满 <公开 值 = 5>
+}
+
+类 停靠窗口管理器 <公开 注释 = "管理一组已创建的MFC窗口组件,按左/上/右/下/充满顺序自动排列到父窗口客户区内.">
+{
+
+    # @ @m<DECLARE_REF_OBJECT_CLASS_WITH_DATA> (CCcIdeDockLayoutManager)
+
+    方法 初始化 <公开 类型 = 逻辑型 注释 = "绑定父窗口.通常在主窗口创建完毕后调用一次." @禁止流程检查 = 真>
+    参数 父窗口 <类型 = 窗口组件 注释 = "提供承载停靠布局的父窗口组件,例如IDE主窗口.">
+    {
+        @ return data ().Init (@<父窗口>.GetMfcWndPtrWithValidHWnd ());
+    }
+
+    方法 清空 <公开 注释 = "清空已经加入的停靠窗口记录,不会销毁窗口本身." @嵌入式方法 = "">
+    {
+        @ @sn<this>.data ().Clear ()
+    }
+
+    方法 添加窗口 <公开 类型 = 整数 注释 = "加入一个已经创建的窗口组件到停靠布局中.返回停靠窗口ID,失败返回0." @禁止流程检查 = 真>
+    参数 欲停靠窗口 <类型 = 窗口组件 注释 = "提供已经创建的窗口组件.">
+    参数 停靠位置 <类型 = 停靠窗口位置 注释 = "提供停靠位置.">
+    参数 初始尺寸 <类型 = 整数 注释 = "左/右停靠时表示宽度,上/下停靠时表示高度,充满时忽略." @默认值 = 200>
+    参数 最小尺寸 <类型 = 整数 注释 = "用于防止布局区域过小时尺寸小于该值." @默认值 = 40>
+    参数 是否显示 <类型 = 逻辑型 注释 = "是否立即显示该停靠窗口." @默认值 = 真>
+    {
+        @ return data ().AddPane (@<欲停靠窗口>.GetMfcWndPtrWithValidHWnd (), @<停靠位置>, @<初始尺寸>, @<最小尺寸>, @<是否显示>);
+    }
+
+    方法 设置窗口可视 <公开 类型 = 逻辑型 注释 = "设置指定停靠窗口是否显示.返回是否成功." @禁止流程检查 = 真>
+    参数 停靠窗口ID <类型 = 整数 注释 = "添加窗口方法返回的ID.">
+    参数 是否显示 <类型 = 逻辑型>
+    {
+        @ return data ().SetPaneVisible (@<停靠窗口ID>, @<是否显示>);
+    }
+
+    方法 设置窗口尺寸 <公开 类型 = 逻辑型 注释 = "修改指定停靠窗口的停靠尺寸.返回是否成功." @禁止流程检查 = 真>
+    参数 停靠窗口ID <类型 = 整数 注释 = "添加窗口方法返回的ID.">
+    参数 新尺寸 <类型 = 整数 注释 = "左/右停靠时表示宽度,上/下停靠时表示高度.">
+    {
+        @ return data ().SetPaneSize (@<停靠窗口ID>, @<新尺寸>);
+    }
+
+    方法 更新布局 <公开 类型 = 逻辑型 注释 = "按已加入窗口的顺序更新布局.宽度或高度小于等于0时使用父窗口完整客户区." @禁止流程检查 = 真>
+    参数 左边 <类型 = 整数 注释 = "布局区域左边坐标." @默认值 = 0>
+    参数 顶边 <类型 = 整数 注释 = "布局区域顶边坐标." @默认值 = 0>
+    参数 宽度 <类型 = 整数 注释 = "布局区域宽度.小于等于0时使用父窗口完整客户区." @默认值 = -1>
+    参数 高度 <类型 = 整数 注释 = "布局区域高度.小于等于0时使用父窗口完整客户区." @默认值 = -1>
+    {
+        @ return data ().Layout (@<左边>, @<顶边>, @<宽度>, @<高度>);
+    }
+
+    方法 取窗口数 <公开 类型 = 整数 注释 = "返回当前已加入的停靠窗口数量." @嵌入式方法 = "">
+    {
+        @ @sn<this>.data ().GetPaneCount ()
+    }
+}
+
+# ===
+
+类 VS滚动容器 <公开 基础类 = 组件布局器 注释 = "当前项目专用的MFC滚动容器.外层窗口提供横向/纵向滚动条,内层承载火山子控件."
+        @视窗.后缀文本 = "public ICcIdeScrollContainerSink">
+{
+    变量 内部虚拟宽度 <类型 = 整数>
+    变量 内部虚拟高度 <类型 = 整数>
+    变量 内部横向滚动 <类型 = 逻辑型>
+    变量 内部纵向滚动 <类型 = 逻辑型>
+
+    方法 VS滚动容器创建完毕 <公开 定义事件 类型 = 整数 注释 = "调用创建VS滚动容器成功后发送.">
+
+    方法 VS滚动位置被改变 <公开 定义事件 类型 = 整数 注释 = "滚动位置改变后发送.来源:1横向滚动条,2纵向滚动条,3鼠标滚轮,4程序设置.">
+    参数 横向位置 <类型 = 整数>
+    参数 纵向位置 <类型 = 整数>
+    参数 来源 <类型 = 整数>
+
+    方法 VS滚动内容尺寸被改变 <公开 定义事件 类型 = 整数 注释 = "虚拟内容尺寸改变后发送.">
+    参数 内容宽度 <类型 = 整数>
+    参数 内容高度 <类型 = 整数>
+
+    方法 VS滚动可视尺寸被改变 <公开 定义事件 类型 = 整数 注释 = "容器可视客户区尺寸改变后发送.">
+    参数 可视宽度 <类型 = 整数>
+    参数 可视高度 <类型 = 整数>
+    参数 调整类型 <类型 = 整数>
+
+    方法 VS鼠标滚轮 <公开 定义事件 类型 = 整数 注释 = "滚动容器收到鼠标滚轮后发送.">
+    参数 滚轮增量 <类型 = 整数>
+    参数 横向位置 <类型 = 整数>
+    参数 纵向位置 <类型 = 整数>
+
+    方法 VS滚动容器将被销毁 <公开 定义事件 类型 = 整数 注释 = "底层滚动容器销毁前发送.">
+
+    方法 创建VS滚动容器 <公开 类型 = 逻辑型 注释 = "创建滚动容器.父窗口可为停靠窗口、普通窗口或其它窗口组件." @禁止流程检查 = 真>
+    参数 父窗口 <类型 = 窗口组件 注释 = "承载滚动容器的父窗口.">
+    参数 ID值 <类型 = 整数 注释 = "窗口ID,同一父窗口内应唯一.">
+    参数 左边 <类型 = 整数>
+    参数 顶边 <类型 = 整数>
+    参数 宽度 <类型 = 整数>
+    参数 高度 <类型 = 整数>
+    参数 虚拟宽度 <类型 = 整数 注释 = "内容虚拟宽度.大于可视宽度时出现横向滚动条." @默认值 = 800>
+    参数 虚拟高度 <类型 = 整数 注释 = "内容虚拟高度.大于可视高度时出现纵向滚动条." @默认值 = 600>
+    参数 启用横向滚动 <类型 = 逻辑型 @默认值 = 真>
+    参数 启用纵向滚动 <类型 = 逻辑型 @默认值 = 真>
+    {
+        @ if (GetMfcWndHandle () != NULL || data ().m_hWnd != NULL)
+        @     return FALSE;
+        @ CWnd* pwndParent = @<父窗口>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pwndParent == NULL || data ().CreateContainer (this, pwndParent,
+        @         CMRect (@<左边>, @<顶边>, @<左边> + @<宽度>, @<顶边> + @<高度>), @<ID值>,
+        @         @<虚拟宽度>, @<虚拟高度>, @<启用横向滚动>, @<启用纵向滚动>) == FALSE)
+        @     return FALSE;
+        内部虚拟宽度 = 虚拟宽度
+        内部虚拟高度 = 虚拟高度
+        内部横向滚动 = 启用横向滚动
+        内部纵向滚动 = 启用纵向滚动
+        VS滚动容器创建完毕 ()
+        返回 (真)
+    }
+
+    方法 虚拟宽度 <公开 属性读 类型 = 整数 注释 = "返回虚拟内容宽度.">
+    {
+        返回 (内部虚拟宽度)
+    }
+
+    方法 虚拟宽度 <公开 属性写 注释 = "设置虚拟内容宽度.">
+    参数 新宽度 <类型 = 整数>
+    {
+        内部虚拟宽度 = 新宽度
+        @ data ().SetVirtualSize (@<内部虚拟宽度>, @<内部虚拟高度>);
+    }
+
+    方法 虚拟高度 <公开 属性读 类型 = 整数 注释 = "返回虚拟内容高度.">
+    {
+        返回 (内部虚拟高度)
+    }
+
+    方法 虚拟高度 <公开 属性写 注释 = "设置虚拟内容高度.">
+    参数 新高度 <类型 = 整数>
+    {
+        内部虚拟高度 = 新高度
+        @ data ().SetVirtualSize (@<内部虚拟宽度>, @<内部虚拟高度>);
+    }
+
+    方法 启用横向滚动 <公开 属性读 类型 = 逻辑型 注释 = "返回是否启用横向滚动条.">
+    {
+        返回 (内部横向滚动)
+    }
+
+    方法 启用横向滚动 <公开 属性写 注释 = "设置是否启用横向滚动条.">
+    参数 是否启用 <类型 = 逻辑型>
+    {
+        内部横向滚动 = 是否启用
+        @ data ().SetScrollEnable (@<内部横向滚动>, @<内部纵向滚动>);
+    }
+
+    方法 启用纵向滚动 <公开 属性读 类型 = 逻辑型 注释 = "返回是否启用纵向滚动条.">
+    {
+        返回 (内部纵向滚动)
+    }
+
+    方法 启用纵向滚动 <公开 属性写 注释 = "设置是否启用纵向滚动条.">
+    参数 是否启用 <类型 = 逻辑型>
+    {
+        内部纵向滚动 = 是否启用
+        @ data ().SetScrollEnable (@<内部横向滚动>, @<内部纵向滚动>);
+    }
+
+    方法 横向位置 <公开 属性读 类型 = 整数 注释 = "返回当前横向滚动位置." @嵌入式方法 = "">
+    {
+        @ @sn<this>.data ().GetScrollX ()
+    }
+
+    方法 横向位置 <公开 属性写 注释 = "设置当前横向滚动位置.">
+    参数 新位置 <类型 = 整数>
+    {
+        @ data ().SetScrollPosValue (@<新位置>, data ().GetScrollY (), 4);
+    }
+
+    方法 纵向位置 <公开 属性读 类型 = 整数 注释 = "返回当前纵向滚动位置." @嵌入式方法 = "">
+    {
+        @ @sn<this>.data ().GetScrollY ()
+    }
+
+    方法 纵向位置 <公开 属性写 注释 = "设置当前纵向滚动位置.">
+    参数 新位置 <类型 = 整数>
+    {
+        @ data ().SetScrollPosValue (data ().GetScrollX (), @<新位置>, 4);
+    }
+
+    方法 可视宽度 <公开 属性读 类型 = 整数 注释 = "返回当前可视客户区宽度." @嵌入式方法 = "">
+    {
+        @ @sn<this>.data ().GetViewWidth ()
+    }
+
+    方法 可视高度 <公开 属性读 类型 = 整数 注释 = "返回当前可视客户区高度." @嵌入式方法 = "">
+    {
+        @ @sn<this>.data ().GetViewHeight ()
+    }
+
+    方法 容器窗口句柄 <公开 属性读 类型 = 变整数 注释 = "返回外层滚动容器窗口句柄(HWND)." @嵌入式方法 = "">
+    {
+        @ (INT_P)@sn<this>.data ().GetSafeHwnd ()
+    }
+
+    方法 内容窗口句柄 <公开 属性读 类型 = 变整数 注释 = "返回内层火山内容窗口句柄(HWND)." @嵌入式方法 = "">
+    {
+        @ (INT_P)@sn<this>.data ().GetContentWnd ()
+    }
+
+    方法 置滚动位置 <公开 类型 = 逻辑型 注释 = "同时设置横向/纵向滚动位置." @禁止流程检查 = 真>
+    参数 横向位置 <类型 = 整数>
+    参数 纵向位置 <类型 = 整数>
+    {
+        @ return data ().SetScrollPosValue (@<横向位置>, @<纵向位置>, 4);
+    }
+
+    方法 滚动指定距离 <公开 类型 = 逻辑型 注释 = "在当前位置基础上滚动指定距离." @禁止流程检查 = 真>
+    参数 横向增量 <类型 = 整数>
+    参数 纵向增量 <类型 = 整数>
+    {
+        @ return data ().ScrollBy (@<横向增量>, @<纵向增量>, 4);
+    }
+
+    方法 置滚动步长 <公开 类型 = 逻辑型 注释 = "设置滚动条单步滚动距离." @禁止流程检查 = 真>
+    参数 横向步长 <类型 = 整数>
+    参数 纵向步长 <类型 = 整数>
+    {
+        @ return data ().SetScrollStep (@<横向步长>, @<纵向步长>);
+    }
+
+    方法 滚动到左上 <公开 类型 = 逻辑型 注释 = "滚动到内容左上角." @禁止流程检查 = 真>
+    {
+        @ return data ().SetScrollPosValue (0, 0, 4);
+    }
+
+    方法 重算滚动条 <公开 类型 = 逻辑型 注释 = "重新计算滚动条范围和内容窗口位置." @禁止流程检查 = 真>
+    {
+        @ return data ().RecalcScroll ();
+    }
+
+    方法 移动滚动容器 <公开 类型 = 逻辑型 注释 = "移动或调整外层滚动容器窗口,常用于父窗口尺寸改变时同步填满客户区." @禁止流程检查 = 真>
+    参数 左边 <类型 = 整数>
+    参数 顶边 <类型 = 整数>
+    参数 宽度 <类型 = 整数>
+    参数 高度 <类型 = 整数>
+    {
+        @ return data ().MoveContainer (@<左边>, @<顶边>, @<宽度>, @<高度>);
+    }
+
+    方法 销毁滚动容器 <公开 类型 = 逻辑型 注释 = "销毁外层滚动容器窗口." @禁止流程检查 = 真>
+    {
+        @ return (data ().GetSafeHwnd () != NULL ? data ().DestroyWindow () : FALSE);
+    }
+
+    # --
+    # @begin
+    # @m<DECLARE_REF_OBJECT_CLASS_WITH_DATA> (CCcIdeScrollContainer)
+    # <> <include>
+    # virtual HWND OnCreateScrollContent (INT nLeft, INT nTop, INT nWidth, INT nHeight) override;
+    # virtual void OnScrollContainerEvent (INT nEvent, INT nValue1, INT nValue2, INT nValue3, INT nValue4) override;
+    # <> </include>
+    #
+    # HWND @sn<current_class>::OnCreateScrollContent (INT nLeft, INT nTop, INT nWidth, INT nHeight)
+    # {
+    #     ASSERT (GetMfcWndHandle () == NULL && data ().m_hWnd != NULL);
+    #     CVolNativeWndCreateParam param (pdata (), nLeft, nTop, nWidth, nHeight, 1);
+    #     return (CreateMfcControl (&param) ? GetMfcWndHandle () : NULL);
+    # }
+    #
+    # void @sn<current_class>::OnScrollContainerEvent (INT nEvent, INT nValue1, INT nValue2, INT nValue3, INT nValue4)
+    # {
+    #     switch (nEvent)
+    #     {
+    #     case CCIDE_SCROLL_EVT_POS_CHANGED:
+    #         @<VS滚动位置被改变> (nValue1, nValue2, nValue3);
+    #         break;
+    #     case CCIDE_SCROLL_EVT_CONTENT_SIZE_CHANGED:
+    #         @<VS滚动内容尺寸被改变> (nValue1, nValue2);
+    #         break;
+    #     case CCIDE_SCROLL_EVT_VIEW_SIZE_CHANGED:
+    #         @<VS滚动可视尺寸被改变> (nValue1, nValue2, nValue3);
+    #         break;
+    #     case CCIDE_SCROLL_EVT_MOUSE_WHEEL:
+    #         @<VS鼠标滚轮> (nValue1, nValue2, nValue3);
+    #         break;
+    #     case CCIDE_SCROLL_EVT_DESTROYING:
+    #         @<VS滚动容器将被销毁> ();
+    #         break;
+    #     }
+    # }
+    # @end
+}
+
+类 解决方案管理停靠窗口 <公开 基础类 = VS扩展停靠窗口 注释 = "IDE左侧解决方案管理器停靠窗" @视窗.布局 = "client_size = \"260, 600\"">
+{
+    变量 方案选择夹 <公开 类型 = 选择夹
+            @视窗.布局 = "id = 1004\r\npos = \"0, 0, 260, 600\""
+            子夹项目 = "解决方案\n0\n支持库\n1\n属性\n2"
+            图片组 = "..\\Assets\\dock_solution_tabs.bmp">
+
+    变量 文件树 <公开 类型 = 增强树形框
+            @视窗.布局 = "id = 1005\r\npos = \"0, 28, 260, 572\""
+            显示加减框 = 真 显示连线 = 真 显示根部线 = 真 始终显示选择项 = 真
+            图片组文件 = "..\\Assets\\tree_icons.bmp"
+            字体 = "微软雅黑, 10">
+
+    变量 支持库树 <公开 类型 = 增强树形框
+            @视窗.布局 = "id = 1006\r\npos = \"0, 28, 260, 572\""
+            显示加减框 = 真 显示连线 = 真 显示根部线 = 真 始终显示选择项 = 真
+            图片组文件 = "..\\Assets\\tree_icons.bmp"
+            字体 = "微软雅黑, 10">
+
+    变量 项目树 <公开 类型 = 增强树形框
+            @视窗.布局 = "id = 1007\r\npos = \"0, 28, 260, 572\""
+            显示加减框 = 真 显示连线 = 真 显示根部线 = 真 始终显示选择项 = 真
+            图片组文件 = "..\\Assets\\tree_icons.bmp"
+            字体 = "微软雅黑, 10">
+
+    变量 属性编辑框 <公开 类型 = 超级编辑框
+            @视窗.布局 = "id = 1008\r\npos = \"0, 28, 260, 572\"\r\n是否允许多行 = 真\r\n只读 = 真\r\n纯文本模式 = 真\r\n自动换行 = 真"
+            背景颜色 = 0x00F8FAFC 字体 = "微软雅黑, 10">
+
+    变量 内部页签位置 <类型 = 整数>
+    变量 内部页签样式 <类型 = 整数>
+    变量 内部页签背景颜色 <类型 = 整数>
+    变量 内部页签选中背景颜色 <类型 = 整数>
+    变量 内部页签文字颜色 <类型 = 整数>
+    变量 内部页签选中文字颜色 <类型 = 整数>
+    变量 内部页签高亮颜色 <类型 = 整数>
+
+    方法 解决方案树被双击 <公开 定义事件 类型 = 整数 注释 = "解决方案树项目被双击后发送.">
+
+    方法 解决方案树被右键单击 <公开 定义事件 类型 = 整数 注释 = "解决方案树项目被右键单击后发送.">
+
+    方法 方案标签被改变 <公开 定义事件 类型 = 整数 注释 = "解决方案管理器页签被切换后发送.">
+    参数 页索引 <类型 = 整数>
+
+    方法 设置面板颜色 <公开 @禁止流程检查 = 真>
+    {
+        @ CWnd* pTree = @<文件树>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pTree != NULL && pTree->m_hWnd != NULL)
+        @ {
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETBKCOLOR, 0, RGB (248, 250, 252));
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETTEXTCOLOR, 0, RGB (31, 41, 55));
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETLINECOLOR, 0, RGB (203, 213, 225));
+        @     ::InvalidateRect (pTree->m_hWnd, NULL, TRUE);
+        @ }
+        @ pTree = @<支持库树>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pTree != NULL && pTree->m_hWnd != NULL)
+        @ {
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETBKCOLOR, 0, RGB (248, 250, 252));
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETTEXTCOLOR, 0, RGB (31, 41, 55));
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETLINECOLOR, 0, RGB (203, 213, 225));
+        @     ::InvalidateRect (pTree->m_hWnd, NULL, TRUE);
+        @ }
+        @ pTree = @<项目树>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pTree != NULL && pTree->m_hWnd != NULL)
+        @ {
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETBKCOLOR, 0, RGB (248, 250, 252));
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETTEXTCOLOR, 0, RGB (31, 41, 55));
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETLINECOLOR, 0, RGB (203, 213, 225));
+        @     ::InvalidateRect (pTree->m_hWnd, NULL, TRUE);
+        @ }
+    }
+
+    方法 设置标签图片组文件 <公开 注释 = "设置解决方案管理器页签图标图片组文件.">
+    参数 图片组文件 <类型 = 文本型>
+    {
+        方案选择夹.图片组文件 = 图片组文件
+    }
+
+    方法 页签位置 <公开 属性读 类型 = 整数 注释 = "返回页签位置: 0=上,1=下,2=左,3=右.">
+    {
+        返回 (内部页签位置)
+    }
+
+    方法 页签位置 <公开 属性写 注释 = "设置页签位置: 0=上,1=下,2=左,3=右.通常IDE输出/解决方案页签使用1(下方).">
+    参数 位置值 <类型 = 整数>
+    {
+        内部页签位置 = 位置值
+        如果 (内部页签位置 < 0)
+        {
+            内部页签位置 = 0
+        }
+        如果 (内部页签位置 > 3)
+        {
+            内部页签位置 = 3
+        }
+        应用页签位置 ()
+        调整内部布局 (宽度, 高度)
+    }
+
+    方法 页签样式 <公开 属性读 类型 = 整数 注释 = "返回页签样式: 0=系统默认,1=IDE扁平高亮.">
+    {
+        返回 (内部页签样式)
+    }
+
+    方法 页签样式 <公开 属性写 注释 = "设置页签样式: 0=系统默认,1=IDE扁平高亮.">
+    参数 样式值 <类型 = 整数>
+    {
+        内部页签样式 = 样式值
+        应用页签样式 ()
+    }
+
+    方法 页签背景颜色 <公开 属性读 类型 = 整数>
+    {
+        返回 (内部页签背景颜色)
+    }
+
+    方法 页签背景颜色 <公开 属性写>
+    参数 颜色值 <类型 = 整数>
+    {
+        内部页签背景颜色 = 颜色值
+        应用页签样式 ()
+    }
+
+    方法 页签选中背景颜色 <公开 属性读 类型 = 整数>
+    {
+        返回 (内部页签选中背景颜色)
+    }
+
+    方法 页签选中背景颜色 <公开 属性写>
+    参数 颜色值 <类型 = 整数>
+    {
+        内部页签选中背景颜色 = 颜色值
+        应用页签样式 ()
+    }
+
+    方法 页签文字颜色 <公开 属性读 类型 = 整数>
+    {
+        返回 (内部页签文字颜色)
+    }
+
+    方法 页签文字颜色 <公开 属性写>
+    参数 颜色值 <类型 = 整数>
+    {
+        内部页签文字颜色 = 颜色值
+        应用页签样式 ()
+    }
+
+    方法 页签选中文字颜色 <公开 属性读 类型 = 整数>
+    {
+        返回 (内部页签选中文字颜色)
+    }
+
+    方法 页签选中文字颜色 <公开 属性写>
+    参数 颜色值 <类型 = 整数>
+    {
+        内部页签选中文字颜色 = 颜色值
+        应用页签样式 ()
+    }
+
+    方法 页签高亮颜色 <公开 属性读 类型 = 整数 注释 = "返回选中页签顶部/底部强调线颜色.">
+    {
+        返回 (内部页签高亮颜色)
+    }
+
+    方法 页签高亮颜色 <公开 属性写 注释 = "设置选中页签顶部/底部强调线颜色.">
+    参数 颜色值 <类型 = 整数>
+    {
+        内部页签高亮颜色 = 颜色值
+        应用页签样式 ()
+    }
+
+    方法 应用页签位置 <公开 @禁止流程检查 = 真>
+    {
+        @ CWnd* pTab = @<方案选择夹>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pTab != NULL && pTab->m_hWnd != NULL)
+        @ {
+        @     LONG_PTR style = ::GetWindowLongPtr (pTab->m_hWnd, GWL_STYLE);
+        @     style &= ~(TCS_BOTTOM | TCS_VERTICAL);
+        @     switch (@<内部页签位置>)
+        @     {
+        @     case 1: style |= TCS_BOTTOM; break;
+        @     case 2: style |= TCS_VERTICAL; break;
+        @     case 3: style |= TCS_BOTTOM | TCS_VERTICAL; break;
+        @     default: break;
+        @     }
+        @     ::SetWindowLongPtr (pTab->m_hWnd, GWL_STYLE, style);
+        @     ::SetWindowPos (pTab->m_hWnd, NULL, 0, 0, 0, 0,
+        @         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        @     pTab->Invalidate ();
+        @ }
+    }
+
+    方法 应用页签样式 <公开 @禁止流程检查 = 真>
+    {
+        @ CWnd* pTab = @<方案选择夹>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pTab != NULL && pTab->m_hWnd != NULL)
+        @ {
+        @     ::SetProp (pTab->m_hWnd, _T ("ccide_solution_tab_style"), (HANDLE)(DWORD_PTR)(@<内部页签样式> + 1));
+        @     ::SetProp (pTab->m_hWnd, _T ("ccide_solution_tab_bg"), (HANDLE)(DWORD_PTR)((COLORREF)@<内部页签背景颜色> + 1));
+        @     ::SetProp (pTab->m_hWnd, _T ("ccide_solution_tab_sel_bg"), (HANDLE)(DWORD_PTR)((COLORREF)@<内部页签选中背景颜色> + 1));
+        @     ::SetProp (pTab->m_hWnd, _T ("ccide_solution_tab_text"), (HANDLE)(DWORD_PTR)((COLORREF)@<内部页签文字颜色> + 1));
+        @     ::SetProp (pTab->m_hWnd, _T ("ccide_solution_tab_sel_text"), (HANDLE)(DWORD_PTR)((COLORREF)@<内部页签选中文字颜色> + 1));
+        @     ::SetProp (pTab->m_hWnd, _T ("ccide_solution_tab_hi"), (HANDLE)(DWORD_PTR)((COLORREF)@<内部页签高亮颜色> + 1));
+        @     LONG_PTR nStyle = ::GetWindowLongPtr (pTab->m_hWnd, GWL_STYLE);
+        @     if ((nStyle & TCS_FIXEDWIDTH) == 0)
+        @         ::SetWindowLongPtr (pTab->m_hWnd, GWL_STYLE, nStyle | TCS_FIXEDWIDTH);
+        @     ::SendMessage (pTab->m_hWnd, TCM_SETITEMSIZE, 0, MAKELPARAM (76, 26));
+        @     ::SetWindowPos (pTab->m_hWnd, NULL, 0, 0, 0, 0,
+        @         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        @     ::InvalidateRect (pTab->m_hWnd, NULL, TRUE);
+        @ }
+    }
+
+    方法 安装页签原生切换 <公开 @禁止流程检查 = 真>
+    {
+        @ static const TCHAR* kOldProcProp = _T ("ccide_solution_tab_old_proc");
+        @ static const TCHAR* kDocWndProp = _T ("ccide_solution_tab_doc");
+        @ static const TCHAR* kLibWndProp = _T ("ccide_solution_tab_lib");
+        @ static const TCHAR* kPropWndProp = _T ("ccide_solution_tab_prop");
+        @ static const TCHAR* kTabWndProp = _T ("ccide_solution_tab_hwnd");
+        @ static const TCHAR* kLastSwitchTickProp = _T ("ccide_solution_tab_last_switch_tick");
+        @ static const TCHAR* kTabStyleProp = _T ("ccide_solution_tab_style");
+        @ static const TCHAR* kTabBgProp = _T ("ccide_solution_tab_bg");
+        @ static const TCHAR* kTabSelBgProp = _T ("ccide_solution_tab_sel_bg");
+        @ static const TCHAR* kTabTextProp = _T ("ccide_solution_tab_text");
+        @ static const TCHAR* kTabSelTextProp = _T ("ccide_solution_tab_sel_text");
+        @ static const TCHAR* kTabHiProp = _T ("ccide_solution_tab_hi");
+        @ struct CSolutionTabSwitchHook
+        @ {
+        @     static INT GetIntProp (HWND hWnd, const TCHAR* name, INT defValue)
+        @     {
+        @         DWORD_PTR v = (DWORD_PTR)::GetProp (hWnd, name);
+        @         return v == 0 ? defValue : (INT)(v - 1);
+        @     }
+        @     static COLORREF GetColorProp (HWND hWnd, const TCHAR* name, COLORREF defValue)
+        @     {
+        @         DWORD_PTR v = (DWORD_PTR)::GetProp (hWnd, name);
+        @         return v == 0 ? defValue : (COLORREF)(v - 1);
+        @     }
+        @     static void DrawTabs (HWND hTab)
+        @     {
+        @         if (!::IsWindow (hTab) || GetIntProp (hTab, kTabStyleProp, 1) <= 0)
+        @             return;
+        @         HDC hdc = ::GetDC (hTab);
+        @         if (hdc == NULL)
+        @             return;
+        @         const INT nCount = (INT)::SendMessage (hTab, TCM_GETITEMCOUNT, 0, 0);
+        @         const INT nCur = (INT)::SendMessage (hTab, TCM_GETCURSEL, 0, 0);
+        @         COLORREF clrBg = GetColorProp (hTab, kTabBgProp, RGB (248, 250, 252));
+        @         COLORREF clrSelBg = GetColorProp (hTab, kTabSelBgProp, RGB (255, 255, 255));
+        @         COLORREF clrText = GetColorProp (hTab, kTabTextProp, RGB (75, 85, 99));
+        @         COLORREF clrSelText = GetColorProp (hTab, kTabSelTextProp, RGB (15, 23, 42));
+        @         COLORREF clrHi = GetColorProp (hTab, kTabHiProp, RGB (14, 165, 233));
+        @         COLORREF clrBorder = RGB (203, 213, 225);
+        @         HIMAGELIST hImages = (HIMAGELIST)::SendMessage (hTab, TCM_GETIMAGELIST, 0, 0);
+        @         HFONT hFont = (HFONT)::SendMessage (hTab, WM_GETFONT, 0, 0);
+        @         HFONT hOldFont = hFont == NULL ? NULL : (HFONT)::SelectObject (hdc, hFont);
+        @         ::SetBkMode (hdc, TRANSPARENT);
+        @         for (INT i = 0; i < nCount; ++i)
+        @         {
+        @             RECT rcItem;
+        @             ZeroMemory (&rcItem, sizeof (rcItem));
+        @             if (!::SendMessage (hTab, TCM_GETITEMRECT, i, (LPARAM)&rcItem))
+        @                 continue;
+        @             const BOOL bSel = (i == nCur);
+        @             RECT rcFill = rcItem;
+        @             ::InflateRect (&rcFill, 1, 2);
+        @             HBRUSH hBrush = ::CreateSolidBrush (bSel ? clrSelBg : clrBg);
+        @             ::FillRect (hdc, &rcFill, hBrush);
+        @             ::DeleteObject (hBrush);
+        @             HPEN hPen = ::CreatePen (PS_SOLID, 1, clrBorder);
+        @             HPEN hOldPen = (HPEN)::SelectObject (hdc, hPen);
+        @             ::MoveToEx (hdc, rcFill.left, rcFill.top, NULL);
+        @             ::LineTo (hdc, rcFill.right, rcFill.top);
+        @             ::MoveToEx (hdc, rcFill.left, rcFill.bottom - 1, NULL);
+        @             ::LineTo (hdc, rcFill.right, rcFill.bottom - 1);
+        @             ::SelectObject (hdc, hOldPen);
+        @             ::DeleteObject (hPen);
+        @             if (bSel)
+        @             {
+        @                 RECT rcHi = rcFill;
+        @                 if ((::GetWindowLongPtr (hTab, GWL_STYLE) & TCS_BOTTOM) != 0)
+        @                     rcHi.top = rcHi.bottom - 3;
+        @                 else
+        @                     rcHi.bottom = rcHi.top + 3;
+        @                 HBRUSH hHi = ::CreateSolidBrush (clrHi);
+        @                 ::FillRect (hdc, &rcHi, hHi);
+        @                 ::DeleteObject (hHi);
+        @             }
+        @             TCHAR text[128];
+        @             TC_ITEM item;
+        @             ZeroMemory (&item, sizeof (item));
+        @             ZeroMemory (text, sizeof (text));
+        @             item.mask = TCIF_TEXT | TCIF_IMAGE;
+        @             item.pszText = text;
+        @             item.cchTextMax = 127;
+        @             item.iImage = -1;
+        @             ::SendMessage (hTab, TCM_GETITEM, i, (LPARAM)&item);
+        @             RECT rcText = rcItem;
+        @             rcText.left += 8;
+        @             rcText.right -= 8;
+        @             SIZE szText;
+        @             szText.cx = 0;
+        @             szText.cy = 0;
+        @             ::GetTextExtentPoint32 (hdc, text, lstrlen (text), &szText);
+        @             BOOL bDrawImage = hImages != NULL && item.iImage >= 0 && (rcText.right - rcText.left) >= (szText.cx + 20);
+        @             if (bDrawImage)
+        @             {
+        @                 ::ImageList_Draw (hImages, item.iImage, hdc, rcText.left, rcText.top + ((rcText.bottom - rcText.top - 16) / 2), ILD_TRANSPARENT);
+        @                 rcText.left += 20;
+        @             }
+        @             ::SetTextColor (hdc, bSel ? clrSelText : clrText);
+        @             ::DrawText (hdc, text, -1, &rcText, (bDrawImage ? DT_LEFT : DT_CENTER) | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        @         }
+        @         if (hOldFont != NULL)
+        @             ::SelectObject (hdc, hOldFont);
+        @         ::ReleaseDC (hTab, hdc);
+        @     }
+        @     static void ShowPage (HWND hWnd, INT nIndex)
+        @     {
+        @         HWND hDoc = (HWND)::GetProp (hWnd, kDocWndProp);
+        @         HWND hLib = (HWND)::GetProp (hWnd, kLibWndProp);
+        @         HWND hProp = (HWND)::GetProp (hWnd, kPropWndProp);
+        @         if (::IsWindow (hDoc)) ::ShowWindow (hDoc, nIndex == 0 ? SW_SHOW : SW_HIDE);
+        @         if (::IsWindow (hLib)) ::ShowWindow (hLib, nIndex == 1 ? SW_SHOW : SW_HIDE);
+        @         if (::IsWindow (hProp)) ::ShowWindow (hProp, nIndex == 2 ? SW_SHOW : SW_HIDE);
+        @     }
+        @     static INT HitPage (HWND hWnd, HWND hTab, LPARAM lParam)
+        @     {
+        @         POINT pt;
+        @         pt.x = GET_X_LPARAM (lParam);
+        @         pt.y = GET_Y_LPARAM (lParam);
+        @         if (::IsWindow (hTab))
+        @         {
+        @             POINT ptTab = pt;
+        @             ::ClientToScreen (hWnd, &ptTab);
+        @             ::ScreenToClient (hTab, &ptTab);
+        @             RECT rcTab;
+        @             if (!::GetClientRect (hTab, &rcTab))
+        @                 return -1;
+        @             if (ptTab.x < 0 || ptTab.x >= rcTab.right || ptTab.y < 0 || ptTab.y >= rcTab.bottom)
+        @                 return -1;
+        @             TCHITTESTINFO hit;
+        @             ZeroMemory (&hit, sizeof (hit));
+        @             hit.pt = ptTab;
+        @             INT nIndex = (INT)::SendMessage (hTab, TCM_HITTEST, 0, (LPARAM)&hit);
+        @             if (nIndex >= 0)
+        @             {
+        @                 RECT rcHitItem;
+        @                 ZeroMemory (&rcHitItem, sizeof (rcHitItem));
+        @                 if (::SendMessage (hTab, TCM_GETITEMRECT, nIndex, (LPARAM)&rcHitItem))
+        @                 {
+        @                     ::InflateRect (&rcHitItem, 8, 8);
+        @                     if (ptTab.x >= rcHitItem.left && ptTab.x < rcHitItem.right && ptTab.y >= rcHitItem.top && ptTab.y < rcHitItem.bottom)
+        @                         return nIndex;
+        @                 }
+        @             }
+        @             if (ptTab.y < rcTab.bottom - 42 || ptTab.y >= rcTab.bottom)
+        @                 return -1;
+        @             INT nCount = (INT)::SendMessage (hTab, TCM_GETITEMCOUNT, 0, 0);
+        @             for (INT i = 0; i < nCount; ++i)
+        @             {
+        @                 RECT rcItem;
+        @                 ZeroMemory (&rcItem, sizeof (rcItem));
+        @                 if (::SendMessage (hTab, TCM_GETITEMRECT, i, (LPARAM)&rcItem))
+        @                 {
+        @                     ::InflateRect (&rcItem, 8, 8);
+        @                     if (ptTab.x >= rcItem.left && ptTab.x < rcItem.right && ptTab.y >= rcItem.top && ptTab.y < rcItem.bottom)
+        @                         return i;
+        @                 }
+        @             }
+        @             return -1;
+        @         }
+        @         return -1;
+        @     }
+        @     static void HookWindow (HWND hTarget, HWND hTab)
+        @     {
+        @         if (hTarget == NULL || !::IsWindow (hTarget))
+        @             return;
+        @         ::SetProp (hTarget, kTabWndProp, (HANDLE)hTab);
+        @         if (::GetProp (hTarget, kOldProcProp) == NULL)
+        @         {
+        @             WNDPROC oldProc = (WNDPROC)::SetWindowLongPtr (hTarget, GWLP_WNDPROC, (LONG_PTR)CSolutionTabSwitchHook::Proc);
+        @             if (oldProc != NULL)
+        @                 ::SetProp (hTarget, kOldProcProp, (HANDLE)oldProc);
+        @         }
+        @     }
+        @     static LRESULT CALLBACK Proc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+        @     {
+        @         WNDPROC oldProc = (WNDPROC)::GetProp (hWnd, kOldProcProp);
+        @         if (uMsg == WM_PAINT)
+        @         {
+        @             LRESULT lr = oldProc != NULL ? ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam) : ::DefWindowProc (hWnd, uMsg, wParam, lParam);
+        @             HWND hTab = (HWND)::GetProp (hWnd, kTabWndProp);
+        @             if (hTab == NULL)
+        @                 hTab = hWnd;
+        @             if (hWnd == hTab)
+        @                 DrawTabs (hTab);
+        @             return lr;
+        @         }
+        @         const BOOL bParentNotify = (uMsg == WM_PARENTNOTIFY && LOWORD (wParam) == WM_LBUTTONDOWN);
+        @         if (uMsg == WM_LBUTTONDOWN || bParentNotify)
+        @         {
+        @             HWND hTab = (HWND)::GetProp (hWnd, kTabWndProp);
+        @             if (hTab == NULL)
+        @                 hTab = hWnd;
+        @             INT nIndex = HitPage (hWnd, hTab, lParam);
+        @             if (nIndex < 0)
+        @                 return (oldProc != NULL ? ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam) : ::DefWindowProc (hWnd, uMsg, wParam, lParam));
+        @             if (nIndex >= 0)
+        @             {
+        @                 DWORD dwNow = ::GetTickCount ();
+        @                 DWORD_PTR npLastSwitch = (DWORD_PTR)::GetProp (hTab, kLastSwitchTickProp);
+        @                 if (npLastSwitch != 0 && dwNow - (DWORD)npLastSwitch < 120)
+        @                 {
+        @                     return 0;
+        @                 }
+        @                 ::SetProp (hTab, kLastSwitchTickProp, (HANDLE)(DWORD_PTR)dwNow);
+        @                 ::SendMessage (hTab, TCM_SETCURSEL, nIndex, 0);
+        @                 ShowPage (hTab, nIndex);
+        @                 ::InvalidateRect (hTab, NULL, TRUE);
+        @                 if (hWnd != hTab)
+        @                     ::InvalidateRect (hWnd, NULL, TRUE);
+        @                 return 0;
+        @             }
+        @         }
+        @         if (uMsg == WM_NCDESTROY)
+        @         {
+        @             if (oldProc != NULL)
+        @             {
+        @                 ::SetWindowLongPtr (hWnd, GWLP_WNDPROC, (LONG_PTR)oldProc);
+        @                 ::RemoveProp (hWnd, kOldProcProp);
+        @                 ::RemoveProp (hWnd, kDocWndProp);
+        @                 ::RemoveProp (hWnd, kLibWndProp);
+        @                 ::RemoveProp (hWnd, kPropWndProp);
+        @                 ::RemoveProp (hWnd, kTabWndProp);
+        @                 ::RemoveProp (hWnd, kLastSwitchTickProp);
+        @                 ::RemoveProp (hWnd, kTabStyleProp);
+        @                 ::RemoveProp (hWnd, kTabBgProp);
+        @                 ::RemoveProp (hWnd, kTabSelBgProp);
+        @                 ::RemoveProp (hWnd, kTabTextProp);
+        @                 ::RemoveProp (hWnd, kTabSelTextProp);
+        @                 ::RemoveProp (hWnd, kTabHiProp);
+        @                 return ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam);
+        @             }
+        @         }
+        @         return (oldProc != NULL ? ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam) : ::DefWindowProc (hWnd, uMsg, wParam, lParam));
+        @     }
+        @ };
+        @ CWnd* pTab = @<方案选择夹>.GetMfcWndPtrWithValidHWnd ();
+        @ CWnd* pDoc = @<文件树>.GetMfcWndPtrWithValidHWnd ();
+        @ CWnd* pLib = @<支持库树>.GetMfcWndPtrWithValidHWnd ();
+        @ CWnd* pProp = @<属性编辑框>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pTab != NULL && pTab->m_hWnd != NULL)
+        @ {
+        @     if (pDoc != NULL) ::SetProp (pTab->m_hWnd, kDocWndProp, (HANDLE)pDoc->m_hWnd);
+        @     if (pLib != NULL) ::SetProp (pTab->m_hWnd, kLibWndProp, (HANDLE)pLib->m_hWnd);
+        @     if (pProp != NULL) ::SetProp (pTab->m_hWnd, kPropWndProp, (HANDLE)pProp->m_hWnd);
+        @     if (::GetProp (pTab->m_hWnd, kOldProcProp) == NULL)
+        @     {
+        @         WNDPROC oldProc = (WNDPROC)::SetWindowLongPtr (pTab->m_hWnd, GWLP_WNDPROC, (LONG_PTR)CSolutionTabSwitchHook::Proc);
+        @         if (oldProc != NULL)
+        @             ::SetProp (pTab->m_hWnd, kOldProcProp, (HANDLE)oldProc);
+        @     }
+        @ }
+        @ HWND pageWnds[3] = {
+        @     pDoc == NULL ? NULL : pDoc->m_hWnd,
+        @     pLib == NULL ? NULL : pLib->m_hWnd,
+        @     pProp == NULL ? NULL : pProp->m_hWnd
+        @ };
+        @ for (int i = 0; i < 3 && pTab != NULL && pTab->m_hWnd != NULL; ++i)
+        @ {
+        @     HWND hPage = pageWnds[i];
+        @     if (hPage == NULL || !::IsWindow (hPage))
+        @         continue;
+        @     CSolutionTabSwitchHook::HookWindow (hPage, pTab->m_hWnd);
+        @ }
+        @ HWND hAncestor = pTab == NULL ? NULL : ::GetParent (pTab->m_hWnd);
+        @ for (int i = 0; i < 8 && hAncestor != NULL && ::IsWindow (hAncestor); ++i)
+        @ {
+        @     CSolutionTabSwitchHook::HookWindow (hAncestor, pTab->m_hWnd);
+        @     hAncestor = ::GetParent (hAncestor);
+        @ }
+    }
+
+    方法 安装文件树右键拦截 <公开 @禁止流程检查 = 真>
+    {
+        @ static const TCHAR* kOldProcProp = _T ("ccide_solution_tree_context_old_proc");
+        @ static const TCHAR* kLastPopupTickProp = _T ("ccide_solution_tree_context_last_tick");
+        @ static const UINT kPopupTreeMenuCommand = 30012;
+        @ struct CSolutionTreeContextHook
+        @ {
+        @     static void SelectHitItem (HWND hWnd, LPARAM lParam)
+        @     {
+        @         POINT pt;
+        @         if (lParam != (LPARAM)-1)
+        @         {
+        @             pt.x = GET_X_LPARAM (lParam);
+        @             pt.y = GET_Y_LPARAM (lParam);
+        @             ::ScreenToClient (hWnd, &pt);
+        @         }
+        @         else
+        @         {
+        @             ::GetCursorPos (&pt);
+        @             ::ScreenToClient (hWnd, &pt);
+        @         }
+        @         TVHITTESTINFO hit;
+        @         ZeroMemory (&hit, sizeof (hit));
+        @         hit.pt = pt;
+        @         HTREEITEM hItem = (HTREEITEM)::SendMessage (hWnd, TVM_HITTEST, 0, (LPARAM)&hit);
+        @         if (hItem != NULL)
+        @             ::SendMessage (hWnd, TVM_SELECTITEM, TVGN_CARET, (LPARAM)hItem);
+        @     }
+        @     static void NotifyMainWindow (HWND hWnd)
+        @     {
+        @         DWORD dwNow = ::GetTickCount ();
+        @         DWORD_PTR npLastTick = (DWORD_PTR)::GetProp (hWnd, kLastPopupTickProp);
+        @         if (npLastTick != 0 && dwNow - (DWORD)npLastTick < 200)
+        @             return;
+        @         ::SetProp (hWnd, kLastPopupTickProp, (HANDLE)(DWORD_PTR)dwNow);
+        @         CWnd* pMain = AfxGetMainWnd ();
+        @         HWND hTarget = (pMain != NULL && pMain->GetSafeHwnd () != NULL) ? pMain->GetSafeHwnd () : ::GetAncestor (hWnd, GA_ROOT);
+        @         if (hTarget != NULL && ::IsWindow (hTarget))
+        @             ::PostMessage (hTarget, WM_COMMAND, MAKEWPARAM (kPopupTreeMenuCommand, 0), (LPARAM)hWnd);
+        @     }
+        @     static void SendMenuCommand (HWND hWnd, UINT nCmd)
+        @     {
+        @         if (nCmd == 0)
+        @             return;
+        @         CWnd* pMain = AfxGetMainWnd ();
+        @         HWND hTarget = (pMain != NULL && pMain->GetSafeHwnd () != NULL) ? pMain->GetSafeHwnd () : ::GetAncestor (hWnd, GA_ROOT);
+        @         if (hTarget != NULL && ::IsWindow (hTarget))
+        @             ::SendMessage (hTarget, WM_COMMAND, MAKEWPARAM (nCmd, 0), (LPARAM)hWnd);
+        @     }
+        @     static void PopupNativeMenu (HWND hWnd, LPARAM lParam)
+        @     {
+        @         DWORD dwNow = ::GetTickCount ();
+        @         DWORD_PTR npLastTick = (DWORD_PTR)::GetProp (hWnd, kLastPopupTickProp);
+        @         if (npLastTick != 0 && dwNow - (DWORD)npLastTick < 200)
+        @             return;
+        @         ::SetProp (hWnd, kLastPopupTickProp, (HANDLE)(DWORD_PTR)dwNow);
+        @         POINT pt;
+        @         if (lParam != (LPARAM)-1)
+        @         {
+        @             pt.x = GET_X_LPARAM (lParam);
+        @             pt.y = GET_Y_LPARAM (lParam);
+        @         }
+        @         else
+        @         {
+        @             ::GetCursorPos (&pt);
+        @         }
+        @         HMENU hMenu = ::CreatePopupMenu ();
+        @         if (hMenu == NULL)
+        @         {
+        @             NotifyMainWindow (hWnd);
+        @             return;
+        @         }
+        @         ::AppendMenu (hMenu, MF_STRING, 30001, _T ("刷新"));
+        @         ::AppendMenu (hMenu, MF_SEPARATOR, 0, NULL);
+        @         ::AppendMenu (hMenu, MF_STRING, 30006, _T ("新建窗口"));
+        @         ::AppendMenu (hMenu, MF_STRING, 30008, _T ("创建模块"));
+        @         ::AppendMenu (hMenu, MF_STRING, 30009, _T ("配置项目模块"));
+        @         ::AppendMenu (hMenu, MF_STRING, 30010, _T ("重新引入模块"));
+        @         ::AppendMenu (hMenu, MF_STRING, 30011, _T ("位置调整"));
+        @         ::AppendMenu (hMenu, MF_SEPARATOR, 0, NULL);
+        @         ::AppendMenu (hMenu, MF_STRING, 30004, _T ("生成项目"));
+        @         ::AppendMenu (hMenu, MF_STRING, 30005, _T ("设为启动项目"));
+        @         ::AppendMenu (hMenu, MF_STRING, 30007, _T ("重命名"));
+        @         ::AppendMenu (hMenu, MF_STRING, 30002, _T ("打开所在文件夹"));
+        @         ::AppendMenu (hMenu, MF_STRING, 30003, _T ("删除"));
+        @         UINT nCmd = ::TrackPopupMenu (hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, NULL);
+        @         ::DestroyMenu (hMenu);
+        @         SendMenuCommand (hWnd, nCmd);
+        @     }
+        @     static LRESULT CALLBACK Proc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+        @     {
+        @         WNDPROC oldProc = (WNDPROC)::GetProp (hWnd, kOldProcProp);
+        @         if (uMsg == WM_RBUTTONUP || uMsg == WM_CONTEXTMENU)
+        @         {
+        @             SelectHitItem (hWnd, uMsg == WM_CONTEXTMENU ? lParam : (LPARAM)-1);
+        @             PopupNativeMenu (hWnd, uMsg == WM_CONTEXTMENU ? lParam : (LPARAM)-1);
+        @             return 0;
+        @         }
+        @         if (uMsg == WM_NCDESTROY)
+        @         {
+        @             if (oldProc != NULL)
+        @             {
+        @                 ::SetWindowLongPtr (hWnd, GWLP_WNDPROC, (LONG_PTR)oldProc);
+        @                 ::RemoveProp (hWnd, kOldProcProp);
+        @                 ::RemoveProp (hWnd, kLastPopupTickProp);
+        @                 return ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam);
+        @             }
+        @         }
+        @         return (oldProc != NULL ? ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam) : ::DefWindowProc (hWnd, uMsg, wParam, lParam));
+        @     }
+        @ };
+        @ CWnd* pTree = @<文件树>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pTree != NULL && pTree->m_hWnd != NULL && ::GetProp (pTree->m_hWnd, kOldProcProp) == NULL)
+        @ {
+        @     WNDPROC oldProc = (WNDPROC)::SetWindowLongPtr (pTree->m_hWnd, GWLP_WNDPROC, (LONG_PTR)CSolutionTreeContextHook::Proc);
+        @     if (oldProc != NULL)
+        @         ::SetProp (pTree->m_hWnd, kOldProcProp, (HANDLE)oldProc);
+        @ }
+    }
+
+    方法 置文档页图标 <公开>
+    参数 图标索引 <类型 = 整数>
+    {
+        方案选择夹.置子夹图标索引 (0, 图标索引)
+    }
+
+    方法 置支持库页图标 <公开>
+    参数 图标索引 <类型 = 整数>
+    {
+        方案选择夹.置子夹图标索引 (1, 图标索引)
+    }
+
+    方法 置项目页图标 <公开>
+    参数 图标索引 <类型 = 整数>
+    {
+        返回
+    }
+
+    方法 置属性页图标 <公开>
+    参数 图标索引 <类型 = 整数>
+    {
+        方案选择夹.置子夹图标索引 (2, 图标索引)
+    }
+
+    方法 当前页 <公开 属性读 类型 = 整数>
+    {
+        返回 (方案选择夹.现行子夹)
+    }
+
+    方法 当前页 <公开 属性写>
+    参数 页索引 <类型 = 整数>
+    {
+        方案选择夹.现行子夹 = 页索引
+        刷新页可视状态 ()
+    }
+
+    方法 刷新页可视状态 <公开>
+    {
+        方案选择夹.可视 = 假
+        文件树.可视 = (方案选择夹.现行子夹 == 0)
+        支持库树.可视 = (方案选择夹.现行子夹 == 1)
+        项目树.可视 = 假
+        属性编辑框.可视 = (方案选择夹.现行子夹 == 2)
+    }
+
+    方法 调整内部布局 <公开>
+    参数 宽度2 <类型 = 整数>
+    参数 高度2 <类型 = 整数>
+    {
+        如果 (宽度2 < 1)
+        {
+            宽度2 = 1
+        }
+        如果 (高度2 < 1)
+        {
+            高度2 = 1
+        }
+        方案选择夹.可视 = 假
+        文件树.移动 (0, 0, 宽度2, 高度2)
+        支持库树.移动 (0, 0, 宽度2, 高度2)
+        项目树.移动 (0, 0, 宽度2, 高度2)
+        属性编辑框.移动 (0, 0, 宽度2, 高度2)
+        刷新页可视状态 ()
+    }
+
+    方法 VS扩展停靠窗口_扩展VS创建完毕 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = VS扩展停靠窗口>
+    参数 标记值 <类型 = 整数>
+    {
+        内部页签位置 = 1
+        内部页签样式 = 1
+        内部页签背景颜色 = 0x00FCFAF8
+        内部页签选中背景颜色 = 0x00FFFFFF
+        内部页签文字颜色 = 0x0063554B
+        内部页签选中文字颜色 = 0x002A170F
+        内部页签高亮颜色 = 0x00E9A50E
+        方案选择夹.现行子夹 = 0
+        方案选择夹.刷新子夹内容 ()
+        应用页签位置 ()
+        应用页签样式 ()
+        调整内部布局 (宽度, 高度)
+        刷新页可视状态 ()
+        设置面板颜色 ()
+        安装文件树右键拦截 ()
+        返回 (0)
+    }
+
+    方法 VS扩展停靠窗口_扩展VS尺寸被改变 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = VS扩展停靠窗口>
+    参数 标记值 <类型 = 整数>
+    参数 宽度2 <类型 = 整数>
+    参数 高度2 <类型 = 整数>
+    参数 调整类型 <类型 = 整数>
+    {
+        调整内部布局 (宽度2, 高度2)
+        安装文件树右键拦截 ()
+        返回 (0)
+    }
+
+    方法 选择夹_子夹被改变 <公开 接收事件 类型 = 整数>
+    参数 来源对象 <类型 = 选择夹>
+    参数 标记值 <类型 = 整数>
+    {
+        如果 (来源对象 == 方案选择夹)
+        {
+            刷新页可视状态 ()
+            方案标签被改变 (方案选择夹.现行子夹)
+        }
+        返回 (0)
+    }
+
+    方法 选择夹_将改变子夹 <公开 接收事件 类型 = 整数>
+    参数 来源对象 <类型 = 选择夹>
+    参数 标记值 <类型 = 整数>
+    {
+        返回 (0)
+    }
+
+    方法 选择夹_被单击 <公开 接收事件 类型 = 整数>
+    参数 来源对象 <类型 = 选择夹>
+    参数 标记值 <类型 = 整数>
+    {
+        如果 (来源对象 == 方案选择夹)
+        {
+            刷新页可视状态 ()
+            方案标签被改变 (方案选择夹.现行子夹)
+        }
+        返回 (0)
+    }
+
+    方法 增强树形框_双击项目 <公开 接收事件 类型 = 整数>
+    参数 来源对象 <类型 = 增强树形框>
+    参数 标记值 <类型 = 整数>
+    {
+        如果 (来源对象 == 文件树)
+        {
+            解决方案树被双击 ()
+        }
+        返回 (0)
+    }
+
+    方法 增强树形框_右键单击项目 <公开 接收事件 类型 = 整数>
+    参数 来源对象 <类型 = 增强树形框>
+    参数 标记值 <类型 = 整数>
+    {
+        如果 (来源对象 == 文件树)
+        {
+            返回 (解决方案树被右键单击 ())
+        }
+        返回 (0)
+    }
+
+    方法 增强树形框_鼠标右键被放开 <公开 接收事件 类型 = 整数>
+    参数 来源对象 <类型 = 增强树形框>
+    参数 标记值 <类型 = 整数>
+    参数 横向位置 <类型 = 整数>
+    参数 纵向位置 <类型 = 整数>
+    参数 辅助键状态 <类型 = 整数>
+    {
+        如果 (来源对象 == 文件树)
+        {
+            返回 (解决方案树被右键单击 ())
+        }
+        返回 (0)
+    }
+
+}
+
+类 支持库停靠窗口 <公开 基础类 = VS扩展停靠窗口 注释 = "IDE左侧支持库停靠页" @视窗.布局 = "client_size = \"260, 600\"">
+{
+    变量 支持库树 <公开 类型 = 增强树形框
+            @视窗.布局 = "id = 1106\r\npos = \"0, 0, 260, 600\""
+            显示加减框 = 真 显示连线 = 真 显示根部线 = 真 始终显示选择项 = 真
+            图片组文件 = "..\\Assets\\tree_icons.bmp"
+            字体 = "微软雅黑, 10">
+
+    方法 设置面板颜色 <公开 @禁止流程检查 = 真>
+    {
+        @ CWnd* pTree = @<支持库树>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pTree != NULL && pTree->m_hWnd != NULL)
+        @ {
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETBKCOLOR, 0, RGB (248, 250, 252));
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETTEXTCOLOR, 0, RGB (31, 41, 55));
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETLINECOLOR, 0, RGB (203, 213, 225));
+        @     ::InvalidateRect (pTree->m_hWnd, NULL, TRUE);
+        @ }
+    }
+
+    方法 调整内部布局 <公开>
+    参数 宽度2 <类型 = 整数>
+    参数 高度2 <类型 = 整数>
+    {
+        如果 (宽度2 < 1)
+        {
+            宽度2 = 1
+        }
+        如果 (高度2 < 1)
+        {
+            高度2 = 1
+        }
+        支持库树.移动 (0, 0, 宽度2, 高度2)
+    }
+
+    方法 VS扩展停靠窗口_扩展VS创建完毕 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = VS扩展停靠窗口>
+    参数 标记值 <类型 = 整数>
+    {
+        调整内部布局 (宽度, 高度)
+        设置面板颜色 ()
+        返回 (0)
+    }
+
+    方法 VS扩展停靠窗口_扩展VS尺寸被改变 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = VS扩展停靠窗口>
+    参数 标记值 <类型 = 整数>
+    参数 宽度2 <类型 = 整数>
+    参数 高度2 <类型 = 整数>
+    参数 调整类型 <类型 = 整数>
+    {
+        调整内部布局 (宽度2, 高度2)
+        返回 (0)
+    }
+}
+
+类 项目停靠窗口 <公开 基础类 = VS扩展停靠窗口 注释 = "IDE左侧项目停靠页" @视窗.布局 = "client_size = \"260, 600\"">
+{
+    变量 项目树 <公开 类型 = 增强树形框
+            @视窗.布局 = "id = 1107\r\npos = \"0, 0, 260, 600\""
+            显示加减框 = 真 显示连线 = 真 显示根部线 = 真 始终显示选择项 = 真
+            图片组文件 = "..\\Assets\\tree_icons.bmp"
+            字体 = "微软雅黑, 10">
+
+    方法 设置面板颜色 <公开 @禁止流程检查 = 真>
+    {
+        @ CWnd* pTree = @<项目树>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pTree != NULL && pTree->m_hWnd != NULL)
+        @ {
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETBKCOLOR, 0, RGB (248, 250, 252));
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETTEXTCOLOR, 0, RGB (31, 41, 55));
+        @     ::SendMessage (pTree->m_hWnd, TVM_SETLINECOLOR, 0, RGB (203, 213, 225));
+        @     ::InvalidateRect (pTree->m_hWnd, NULL, TRUE);
+        @ }
+    }
+
+    方法 调整内部布局 <公开>
+    参数 宽度2 <类型 = 整数>
+    参数 高度2 <类型 = 整数>
+    {
+        如果 (宽度2 < 1)
+        {
+            宽度2 = 1
+        }
+        如果 (高度2 < 1)
+        {
+            高度2 = 1
+        }
+        项目树.移动 (0, 0, 宽度2, 高度2)
+    }
+
+    方法 VS扩展停靠窗口_扩展VS创建完毕 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = VS扩展停靠窗口>
+    参数 标记值 <类型 = 整数>
+    {
+        调整内部布局 (宽度, 高度)
+        设置面板颜色 ()
+        返回 (0)
+    }
+
+    方法 VS扩展停靠窗口_扩展VS尺寸被改变 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = VS扩展停靠窗口>
+    参数 标记值 <类型 = 整数>
+    参数 宽度2 <类型 = 整数>
+    参数 高度2 <类型 = 整数>
+    参数 调整类型 <类型 = 整数>
+    {
+        调整内部布局 (宽度2, 高度2)
+        返回 (0)
+    }
+}
+
+类 属性停靠窗口 <公开 基础类 = VS扩展停靠窗口 注释 = "IDE左侧属性停靠页" @视窗.布局 = "client_size = \"260, 600\"">
+{
+    变量 属性编辑框 <公开 类型 = 超级编辑框
+            @视窗.布局 = "id = 1108\r\npos = \"0, 0, 260, 600\"\r\n是否允许多行 = 真\r\n只读 = 真\r\n纯文本模式 = 真\r\n自动换行 = 真"
+            背景颜色 = 0x00F8FAFC 字体 = "微软雅黑, 10">
+
+    方法 调整内部布局 <公开>
+    参数 宽度2 <类型 = 整数>
+    参数 高度2 <类型 = 整数>
+    {
+        如果 (宽度2 < 1)
+        {
+            宽度2 = 1
+        }
+        如果 (高度2 < 1)
+        {
+            高度2 = 1
+        }
+        属性编辑框.移动 (0, 0, 宽度2, 高度2)
+    }
+
+    方法 VS扩展停靠窗口_扩展VS创建完毕 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = VS扩展停靠窗口>
+    参数 标记值 <类型 = 整数>
+    {
+        属性编辑框.内容 = ""
+        调整内部布局 (宽度, 高度)
+        返回 (0)
+    }
+
+    方法 VS扩展停靠窗口_扩展VS尺寸被改变 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = VS扩展停靠窗口>
+    参数 标记值 <类型 = 整数>
+    参数 宽度2 <类型 = 整数>
+    参数 高度2 <类型 = 整数>
+    参数 调整类型 <类型 = 整数>
+    {
+        调整内部布局 (宽度2, 高度2)
+        返回 (0)
+    }
+}
+
+类 日志输出停靠窗口 <公开 基础类 = VS扩展停靠窗口 注释 = "IDE底部日志输出停靠窗" @视窗.布局 = "client_size = \"800, 220\"">
+{
+    变量 输出选择夹 <公开 类型 = 选择夹
+            @视窗.布局 = "id = 1010\r\npos = \"0, 0, 800, 220\""
+            子夹项目 = "提示\n0\n输出\n1"
+            图片组 = "..\\Assets\\dock_output_tabs.bmp">
+
+    变量 提示编辑框 <公开 类型 = 超级编辑框
+            @视窗.布局 = "id = 1011\r\npos = \"0, 28, 800, 192\"\r\n是否允许多行 = 真\r\n只读 = 真\r\n纯文本模式 = 真\r\n自动换行 = 真"
+            背景颜色 = 0x00111827 字体 = "微软雅黑, 10">
+
+    变量 输出编辑框 <公开 类型 = 超级编辑框
+            @视窗.布局 = "id = 1012\r\npos = \"0, 28, 800, 192\"\r\n是否允许多行 = 真\r\n只读 = 真\r\n纯文本模式 = 真\r\n自动换行 = 假"
+            背景颜色 = 0x00111827 字体 = "Consolas, 10">
+
+    变量 内部页签位置 <类型 = 整数>
+    变量 内部页签样式 <类型 = 整数>
+    变量 内部页签背景颜色 <类型 = 整数>
+    变量 内部页签选中背景颜色 <类型 = 整数>
+    变量 内部页签文字颜色 <类型 = 整数>
+    变量 内部页签选中文字颜色 <类型 = 整数>
+    变量 内部页签高亮颜色 <类型 = 整数>
+
+    方法 输出标签被改变 <公开 定义事件 类型 = 整数 注释 = "输出窗口页签被切换后发送.">
+    参数 页索引 <类型 = 整数>
+
+    方法 设置面板颜色 <公开 @禁止流程检查 = 真>
+    {
+        @ CWnd* pEdit = @<输出编辑框>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pEdit != NULL && pEdit->m_hWnd != NULL)
+        @ {
+        @     ::SendMessage (pEdit->m_hWnd, EM_SETBKGNDCOLOR, 0, RGB (17, 24, 39));
+        @     CHARFORMAT2 cf;
+        @     ZeroMemory (&cf, sizeof (cf));
+        @     cf.cbSize = sizeof (cf);
+        @     cf.dwMask = CFM_COLOR;
+        @     cf.crTextColor = RGB (226, 232, 240);
+        @     ::SendMessage (pEdit->m_hWnd, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cf);
+        @     ::SendMessage (pEdit->m_hWnd, EM_SETCHARFORMAT, SCF_DEFAULT, (LPARAM)&cf);
+        @     ::InvalidateRect (pEdit->m_hWnd, NULL, TRUE);
+        @ }
+        @ pEdit = @<提示编辑框>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pEdit != NULL && pEdit->m_hWnd != NULL)
+        @ {
+        @     ::SendMessage (pEdit->m_hWnd, EM_SETBKGNDCOLOR, 0, RGB (17, 24, 39));
+        @     CHARFORMAT2 cf;
+        @     ZeroMemory (&cf, sizeof (cf));
+        @     cf.cbSize = sizeof (cf);
+        @     cf.dwMask = CFM_COLOR;
+        @     cf.crTextColor = RGB (226, 232, 240);
+        @     ::SendMessage (pEdit->m_hWnd, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cf);
+        @     ::SendMessage (pEdit->m_hWnd, EM_SETCHARFORMAT, SCF_DEFAULT, (LPARAM)&cf);
+        @     ::InvalidateRect (pEdit->m_hWnd, NULL, TRUE);
+        @ }
+    }
+
+    方法 设置标签图片组文件 <公开 注释 = "设置输出窗口页签图标图片组文件.">
+    参数 图片组文件 <类型 = 文本型>
+    {
+        输出选择夹.图片组文件 = 图片组文件
+    }
+
+    方法 页签位置 <公开 属性读 类型 = 整数 注释 = "返回页签位置: 0=上,1=下,2=左,3=右.">
+    {
+        返回 (内部页签位置)
+    }
+
+    方法 页签位置 <公开 属性写 注释 = "设置页签位置: 0=上,1=下,2=左,3=右.通常IDE输出页签使用1(下方).">
+    参数 位置值 <类型 = 整数>
+    {
+        内部页签位置 = 位置值
+        如果 (内部页签位置 < 0)
+        {
+            内部页签位置 = 0
+        }
+        如果 (内部页签位置 > 3)
+        {
+            内部页签位置 = 3
+        }
+        应用页签位置 ()
+        调整内部布局 (宽度, 高度)
+    }
+
+    方法 页签样式 <公开 属性读 类型 = 整数 注释 = "返回页签样式: 0=系统默认,1=IDE扁平高亮.">
+    {
+        返回 (内部页签样式)
+    }
+
+    方法 页签样式 <公开 属性写 注释 = "设置页签样式: 0=系统默认,1=IDE扁平高亮.">
+    参数 样式值 <类型 = 整数>
+    {
+        内部页签样式 = 样式值
+        应用页签样式 ()
+    }
+
+    方法 页签背景颜色 <公开 属性读 类型 = 整数>
+    {
+        返回 (内部页签背景颜色)
+    }
+
+    方法 页签背景颜色 <公开 属性写>
+    参数 颜色值 <类型 = 整数>
+    {
+        内部页签背景颜色 = 颜色值
+        应用页签样式 ()
+    }
+
+    方法 页签选中背景颜色 <公开 属性读 类型 = 整数>
+    {
+        返回 (内部页签选中背景颜色)
+    }
+
+    方法 页签选中背景颜色 <公开 属性写>
+    参数 颜色值 <类型 = 整数>
+    {
+        内部页签选中背景颜色 = 颜色值
+        应用页签样式 ()
+    }
+
+    方法 页签文字颜色 <公开 属性读 类型 = 整数>
+    {
+        返回 (内部页签文字颜色)
+    }
+
+    方法 页签文字颜色 <公开 属性写>
+    参数 颜色值 <类型 = 整数>
+    {
+        内部页签文字颜色 = 颜色值
+        应用页签样式 ()
+    }
+
+    方法 页签选中文字颜色 <公开 属性读 类型 = 整数>
+    {
+        返回 (内部页签选中文字颜色)
+    }
+
+    方法 页签选中文字颜色 <公开 属性写>
+    参数 颜色值 <类型 = 整数>
+    {
+        内部页签选中文字颜色 = 颜色值
+        应用页签样式 ()
+    }
+
+    方法 页签高亮颜色 <公开 属性读 类型 = 整数 注释 = "返回选中页签顶部/底部强调线颜色.">
+    {
+        返回 (内部页签高亮颜色)
+    }
+
+    方法 页签高亮颜色 <公开 属性写 注释 = "设置选中页签顶部/底部强调线颜色.">
+    参数 颜色值 <类型 = 整数>
+    {
+        内部页签高亮颜色 = 颜色值
+        应用页签样式 ()
+    }
+
+    方法 应用页签位置 <公开 @禁止流程检查 = 真>
+    {
+        @ CWnd* pTab = @<输出选择夹>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pTab != NULL && pTab->m_hWnd != NULL)
+        @ {
+        @     LONG_PTR style = ::GetWindowLongPtr (pTab->m_hWnd, GWL_STYLE);
+        @     style &= ~(TCS_BOTTOM | TCS_VERTICAL);
+        @     switch (@<内部页签位置>)
+        @     {
+        @     case 1: style |= TCS_BOTTOM; break;
+        @     case 2: style |= TCS_VERTICAL; break;
+        @     case 3: style |= TCS_BOTTOM | TCS_VERTICAL; break;
+        @     default: break;
+        @     }
+        @     ::SetWindowLongPtr (pTab->m_hWnd, GWL_STYLE, style);
+        @     ::SetWindowPos (pTab->m_hWnd, NULL, 0, 0, 0, 0,
+        @         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        @     pTab->Invalidate ();
+        @ }
+    }
+
+    方法 应用页签样式 <公开 @禁止流程检查 = 真>
+    {
+        @ CWnd* pTab = @<输出选择夹>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pTab != NULL && pTab->m_hWnd != NULL)
+        @ {
+        @     ::SetProp (pTab->m_hWnd, _T ("ccide_output_tab_style"), (HANDLE)(DWORD_PTR)(@<内部页签样式> + 1));
+        @     ::SetProp (pTab->m_hWnd, _T ("ccide_output_tab_bg"), (HANDLE)(DWORD_PTR)((COLORREF)@<内部页签背景颜色> + 1));
+        @     ::SetProp (pTab->m_hWnd, _T ("ccide_output_tab_sel_bg"), (HANDLE)(DWORD_PTR)((COLORREF)@<内部页签选中背景颜色> + 1));
+        @     ::SetProp (pTab->m_hWnd, _T ("ccide_output_tab_text"), (HANDLE)(DWORD_PTR)((COLORREF)@<内部页签文字颜色> + 1));
+        @     ::SetProp (pTab->m_hWnd, _T ("ccide_output_tab_sel_text"), (HANDLE)(DWORD_PTR)((COLORREF)@<内部页签选中文字颜色> + 1));
+        @     ::SetProp (pTab->m_hWnd, _T ("ccide_output_tab_hi"), (HANDLE)(DWORD_PTR)((COLORREF)@<内部页签高亮颜色> + 1));
+        @     LONG_PTR nStyle = ::GetWindowLongPtr (pTab->m_hWnd, GWL_STYLE);
+        @     if ((nStyle & TCS_FIXEDWIDTH) == 0)
+        @         ::SetWindowLongPtr (pTab->m_hWnd, GWL_STYLE, nStyle | TCS_FIXEDWIDTH);
+        @     ::SendMessage (pTab->m_hWnd, TCM_SETITEMSIZE, 0, MAKELPARAM (84, 26));
+        @     ::SetWindowPos (pTab->m_hWnd, NULL, 0, 0, 0, 0,
+        @         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        @     ::InvalidateRect (pTab->m_hWnd, NULL, TRUE);
+        @ }
+    }
+
+    方法 安装页签原生切换 <公开 @禁止流程检查 = 真>
+    {
+        @ static const TCHAR* kOldProcProp = _T ("ccide_output_tab_old_proc");
+        @ static const TCHAR* kTipWndProp = _T ("ccide_output_tab_tip");
+        @ static const TCHAR* kOutputWndProp = _T ("ccide_output_tab_output");
+        @ static const TCHAR* kTabWndProp = _T ("ccide_output_tab_hwnd");
+        @ static const TCHAR* kLastSwitchTickProp = _T ("ccide_output_tab_last_switch_tick");
+        @ static const TCHAR* kTabStyleProp = _T ("ccide_output_tab_style");
+        @ static const TCHAR* kTabBgProp = _T ("ccide_output_tab_bg");
+        @ static const TCHAR* kTabSelBgProp = _T ("ccide_output_tab_sel_bg");
+        @ static const TCHAR* kTabTextProp = _T ("ccide_output_tab_text");
+        @ static const TCHAR* kTabSelTextProp = _T ("ccide_output_tab_sel_text");
+        @ static const TCHAR* kTabHiProp = _T ("ccide_output_tab_hi");
+        @ struct COutputTabSwitchHook
+        @ {
+        @     static INT GetIntProp (HWND hWnd, const TCHAR* name, INT defValue)
+        @     {
+        @         DWORD_PTR v = (DWORD_PTR)::GetProp (hWnd, name);
+        @         return v == 0 ? defValue : (INT)(v - 1);
+        @     }
+        @     static COLORREF GetColorProp (HWND hWnd, const TCHAR* name, COLORREF defValue)
+        @     {
+        @         DWORD_PTR v = (DWORD_PTR)::GetProp (hWnd, name);
+        @         return v == 0 ? defValue : (COLORREF)(v - 1);
+        @     }
+        @     static void DrawTabs (HWND hTab)
+        @     {
+        @         if (!::IsWindow (hTab) || GetIntProp (hTab, kTabStyleProp, 1) <= 0)
+        @             return;
+        @         HDC hdc = ::GetDC (hTab);
+        @         if (hdc == NULL)
+        @             return;
+        @         const INT nCount = (INT)::SendMessage (hTab, TCM_GETITEMCOUNT, 0, 0);
+        @         const INT nCur = (INT)::SendMessage (hTab, TCM_GETCURSEL, 0, 0);
+        @         COLORREF clrBg = GetColorProp (hTab, kTabBgProp, RGB (17, 24, 39));
+        @         COLORREF clrSelBg = GetColorProp (hTab, kTabSelBgProp, RGB (30, 64, 175));
+        @         COLORREF clrText = GetColorProp (hTab, kTabTextProp, RGB (148, 163, 184));
+        @         COLORREF clrSelText = GetColorProp (hTab, kTabSelTextProp, RGB (248, 250, 252));
+        @         COLORREF clrHi = GetColorProp (hTab, kTabHiProp, RGB (56, 189, 248));
+        @         COLORREF clrBorder = RGB (51, 65, 85);
+        @         HIMAGELIST hImages = (HIMAGELIST)::SendMessage (hTab, TCM_GETIMAGELIST, 0, 0);
+        @         HFONT hFont = (HFONT)::SendMessage (hTab, WM_GETFONT, 0, 0);
+        @         HFONT hOldFont = hFont == NULL ? NULL : (HFONT)::SelectObject (hdc, hFont);
+        @         ::SetBkMode (hdc, TRANSPARENT);
+        @         for (INT i = 0; i < nCount; ++i)
+        @         {
+        @             RECT rcItem;
+        @             ZeroMemory (&rcItem, sizeof (rcItem));
+        @             if (!::SendMessage (hTab, TCM_GETITEMRECT, i, (LPARAM)&rcItem))
+        @                 continue;
+        @             const BOOL bSel = (i == nCur);
+        @             RECT rcFill = rcItem;
+        @             ::InflateRect (&rcFill, 1, 2);
+        @             HBRUSH hBrush = ::CreateSolidBrush (bSel ? clrSelBg : clrBg);
+        @             ::FillRect (hdc, &rcFill, hBrush);
+        @             ::DeleteObject (hBrush);
+        @             HPEN hPen = ::CreatePen (PS_SOLID, 1, clrBorder);
+        @             HPEN hOldPen = (HPEN)::SelectObject (hdc, hPen);
+        @             ::MoveToEx (hdc, rcFill.left, rcFill.top, NULL);
+        @             ::LineTo (hdc, rcFill.right, rcFill.top);
+        @             ::MoveToEx (hdc, rcFill.left, rcFill.bottom - 1, NULL);
+        @             ::LineTo (hdc, rcFill.right, rcFill.bottom - 1);
+        @             ::SelectObject (hdc, hOldPen);
+        @             ::DeleteObject (hPen);
+        @             if (bSel)
+        @             {
+        @                 RECT rcHi = rcFill;
+        @                 if ((::GetWindowLongPtr (hTab, GWL_STYLE) & TCS_BOTTOM) != 0)
+        @                     rcHi.top = rcHi.bottom - 3;
+        @                 else
+        @                     rcHi.bottom = rcHi.top + 3;
+        @                 HBRUSH hHi = ::CreateSolidBrush (clrHi);
+        @                 ::FillRect (hdc, &rcHi, hHi);
+        @                 ::DeleteObject (hHi);
+        @             }
+        @             TCHAR text[128];
+        @             TC_ITEM item;
+        @             ZeroMemory (&item, sizeof (item));
+        @             ZeroMemory (text, sizeof (text));
+        @             item.mask = TCIF_TEXT | TCIF_IMAGE;
+        @             item.pszText = text;
+        @             item.cchTextMax = 127;
+        @             item.iImage = -1;
+        @             ::SendMessage (hTab, TCM_GETITEM, i, (LPARAM)&item);
+        @             RECT rcText = rcItem;
+        @             rcText.left += 8;
+        @             rcText.right -= 8;
+        @             SIZE szText;
+        @             szText.cx = 0;
+        @             szText.cy = 0;
+        @             ::GetTextExtentPoint32 (hdc, text, lstrlen (text), &szText);
+        @             BOOL bDrawImage = hImages != NULL && item.iImage >= 0 && (rcText.right - rcText.left) >= (szText.cx + 20);
+        @             if (bDrawImage)
+        @             {
+        @                 ::ImageList_Draw (hImages, item.iImage, hdc, rcText.left, rcText.top + ((rcText.bottom - rcText.top - 16) / 2), ILD_TRANSPARENT);
+        @                 rcText.left += 20;
+        @             }
+        @             ::SetTextColor (hdc, bSel ? clrSelText : clrText);
+        @             ::DrawText (hdc, text, -1, &rcText, (bDrawImage ? DT_LEFT : DT_CENTER) | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        @         }
+        @         if (hOldFont != NULL)
+        @             ::SelectObject (hdc, hOldFont);
+        @         ::ReleaseDC (hTab, hdc);
+        @     }
+        @     static void ShowPage (HWND hWnd, INT nIndex)
+        @     {
+        @         HWND hTip = (HWND)::GetProp (hWnd, kTipWndProp);
+        @         HWND hOutput = (HWND)::GetProp (hWnd, kOutputWndProp);
+        @         if (::IsWindow (hTip)) ::ShowWindow (hTip, nIndex == 0 ? SW_SHOW : SW_HIDE);
+        @         if (::IsWindow (hOutput)) ::ShowWindow (hOutput, nIndex == 1 ? SW_SHOW : SW_HIDE);
+        @     }
+        @     static INT HitPage (HWND hWnd, HWND hTab, LPARAM lParam)
+        @     {
+        @         POINT pt;
+        @         pt.x = GET_X_LPARAM (lParam);
+        @         pt.y = GET_Y_LPARAM (lParam);
+        @         if (::IsWindow (hTab))
+        @         {
+        @             POINT ptTab = pt;
+        @             ::ClientToScreen (hWnd, &ptTab);
+        @             ::ScreenToClient (hTab, &ptTab);
+        @             RECT rcTab;
+        @             if (!::GetClientRect (hTab, &rcTab))
+        @                 return -1;
+        @             if (ptTab.x < 0 || ptTab.x >= rcTab.right || ptTab.y < 0 || ptTab.y >= rcTab.bottom)
+        @                 return -1;
+        @             TCHITTESTINFO hit;
+        @             ZeroMemory (&hit, sizeof (hit));
+        @             hit.pt = ptTab;
+        @             INT nIndex = (INT)::SendMessage (hTab, TCM_HITTEST, 0, (LPARAM)&hit);
+        @             if (nIndex >= 0)
+        @             {
+        @                 RECT rcHitItem;
+        @                 ZeroMemory (&rcHitItem, sizeof (rcHitItem));
+        @                 if (::SendMessage (hTab, TCM_GETITEMRECT, nIndex, (LPARAM)&rcHitItem))
+        @                 {
+        @                     ::InflateRect (&rcHitItem, 8, 8);
+        @                     if (ptTab.x >= rcHitItem.left && ptTab.x < rcHitItem.right && ptTab.y >= rcHitItem.top && ptTab.y < rcHitItem.bottom)
+        @                         return nIndex;
+        @                 }
+        @             }
+        @             if (ptTab.y < rcTab.bottom - 42 || ptTab.y >= rcTab.bottom)
+        @                 return -1;
+        @             INT nCount = (INT)::SendMessage (hTab, TCM_GETITEMCOUNT, 0, 0);
+        @             for (INT i = 0; i < nCount; ++i)
+        @             {
+        @                 RECT rcItem;
+        @                 ZeroMemory (&rcItem, sizeof (rcItem));
+        @                 if (::SendMessage (hTab, TCM_GETITEMRECT, i, (LPARAM)&rcItem))
+        @                 {
+        @                     ::InflateRect (&rcItem, 8, 8);
+        @                     if (ptTab.x >= rcItem.left && ptTab.x < rcItem.right && ptTab.y >= rcItem.top && ptTab.y < rcItem.bottom)
+        @                         return i;
+        @                 }
+        @             }
+        @             return -1;
+        @         }
+        @         return -1;
+        @     }
+        @     static void HookWindow (HWND hTarget, HWND hTab)
+        @     {
+        @         if (hTarget == NULL || !::IsWindow (hTarget))
+        @             return;
+        @         ::SetProp (hTarget, kTabWndProp, (HANDLE)hTab);
+        @         if (::GetProp (hTarget, kOldProcProp) == NULL)
+        @         {
+        @             WNDPROC oldProc = (WNDPROC)::SetWindowLongPtr (hTarget, GWLP_WNDPROC, (LONG_PTR)COutputTabSwitchHook::Proc);
+        @             if (oldProc != NULL)
+        @                 ::SetProp (hTarget, kOldProcProp, (HANDLE)oldProc);
+        @         }
+        @     }
+        @     static LRESULT CALLBACK Proc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+        @     {
+        @         WNDPROC oldProc = (WNDPROC)::GetProp (hWnd, kOldProcProp);
+        @         if (uMsg == WM_PAINT)
+        @         {
+        @             LRESULT lr = oldProc != NULL ? ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam) : ::DefWindowProc (hWnd, uMsg, wParam, lParam);
+        @             HWND hTab = (HWND)::GetProp (hWnd, kTabWndProp);
+        @             if (hTab == NULL)
+        @                 hTab = hWnd;
+        @             if (hWnd == hTab)
+        @                 DrawTabs (hTab);
+        @             return lr;
+        @         }
+        @         const BOOL bParentNotify = (uMsg == WM_PARENTNOTIFY && LOWORD (wParam) == WM_LBUTTONDOWN);
+        @         if (uMsg == WM_LBUTTONDOWN || bParentNotify)
+        @         {
+        @             HWND hTab = (HWND)::GetProp (hWnd, kTabWndProp);
+        @             if (hTab == NULL)
+        @                 hTab = hWnd;
+        @             INT nIndex = HitPage (hWnd, hTab, lParam);
+        @             if (nIndex < 0)
+        @                 return (oldProc != NULL ? ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam) : ::DefWindowProc (hWnd, uMsg, wParam, lParam));
+        @             if (nIndex >= 0)
+        @             {
+        @                 DWORD dwNow = ::GetTickCount ();
+        @                 DWORD_PTR npLastSwitch = (DWORD_PTR)::GetProp (hTab, kLastSwitchTickProp);
+        @                 if (npLastSwitch != 0 && dwNow - (DWORD)npLastSwitch < 120)
+        @                 {
+        @                     return 0;
+        @                 }
+        @                 ::SetProp (hTab, kLastSwitchTickProp, (HANDLE)(DWORD_PTR)dwNow);
+        @                 ::SendMessage (hTab, TCM_SETCURSEL, nIndex, 0);
+        @                 ShowPage (hTab, nIndex);
+        @                 ::InvalidateRect (hTab, NULL, TRUE);
+        @                 if (hWnd != hTab)
+        @                     ::InvalidateRect (hWnd, NULL, TRUE);
+        @                 return 0;
+        @             }
+        @         }
+        @         if (uMsg == WM_NCDESTROY)
+        @         {
+        @             if (oldProc != NULL)
+        @             {
+        @                 ::SetWindowLongPtr (hWnd, GWLP_WNDPROC, (LONG_PTR)oldProc);
+        @                 ::RemoveProp (hWnd, kOldProcProp);
+        @                 ::RemoveProp (hWnd, kTipWndProp);
+        @                 ::RemoveProp (hWnd, kOutputWndProp);
+        @                 ::RemoveProp (hWnd, kTabWndProp);
+        @                 ::RemoveProp (hWnd, kLastSwitchTickProp);
+        @                 ::RemoveProp (hWnd, kTabStyleProp);
+        @                 ::RemoveProp (hWnd, kTabBgProp);
+        @                 ::RemoveProp (hWnd, kTabSelBgProp);
+        @                 ::RemoveProp (hWnd, kTabTextProp);
+        @                 ::RemoveProp (hWnd, kTabSelTextProp);
+        @                 ::RemoveProp (hWnd, kTabHiProp);
+        @                 return ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam);
+        @             }
+        @         }
+        @         return (oldProc != NULL ? ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam) : ::DefWindowProc (hWnd, uMsg, wParam, lParam));
+        @     }
+        @ };
+        @ CWnd* pTab = @<输出选择夹>.GetMfcWndPtrWithValidHWnd ();
+        @ CWnd* pTip = @<提示编辑框>.GetMfcWndPtrWithValidHWnd ();
+        @ CWnd* pOutput = @<输出编辑框>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pTab != NULL && pTab->m_hWnd != NULL)
+        @ {
+        @     if (pTip != NULL) ::SetProp (pTab->m_hWnd, kTipWndProp, (HANDLE)pTip->m_hWnd);
+        @     if (pOutput != NULL) ::SetProp (pTab->m_hWnd, kOutputWndProp, (HANDLE)pOutput->m_hWnd);
+        @     if (::GetProp (pTab->m_hWnd, kOldProcProp) == NULL)
+        @     {
+        @         WNDPROC oldProc = (WNDPROC)::SetWindowLongPtr (pTab->m_hWnd, GWLP_WNDPROC, (LONG_PTR)COutputTabSwitchHook::Proc);
+        @         if (oldProc != NULL)
+        @             ::SetProp (pTab->m_hWnd, kOldProcProp, (HANDLE)oldProc);
+        @     }
+        @ }
+        @ HWND pageWnds[2] = {
+        @     pTip == NULL ? NULL : pTip->m_hWnd,
+        @     pOutput == NULL ? NULL : pOutput->m_hWnd
+        @ };
+        @ for (int i = 0; i < 2 && pTab != NULL && pTab->m_hWnd != NULL; ++i)
+        @ {
+        @     HWND hPage = pageWnds[i];
+        @     if (hPage == NULL || !::IsWindow (hPage))
+        @         continue;
+        @     COutputTabSwitchHook::HookWindow (hPage, pTab->m_hWnd);
+        @ }
+        @ HWND hAncestor = pTab == NULL ? NULL : ::GetParent (pTab->m_hWnd);
+        @ for (int i = 0; i < 8 && hAncestor != NULL && ::IsWindow (hAncestor); ++i)
+        @ {
+        @     COutputTabSwitchHook::HookWindow (hAncestor, pTab->m_hWnd);
+        @     hAncestor = ::GetParent (hAncestor);
+        @ }
+    }
+
+    方法 置提示页图标 <公开>
+    参数 图标索引 <类型 = 整数>
+    {
+        输出选择夹.置子夹图标索引 (0, 图标索引)
+    }
+
+    方法 置输出页图标 <公开>
+    参数 图标索引 <类型 = 整数>
+    {
+        输出选择夹.置子夹图标索引 (1, 图标索引)
+    }
+
+    方法 当前页 <公开 属性读 类型 = 整数>
+    {
+        返回 (输出选择夹.现行子夹)
+    }
+
+    方法 当前页 <公开 属性写>
+    参数 页索引 <类型 = 整数>
+    {
+        输出选择夹.现行子夹 = 页索引
+        刷新页可视状态 ()
+    }
+
+    方法 刷新页可视状态 <公开>
+    {
+        输出选择夹.可视 = 假
+        提示编辑框.可视 = (输出选择夹.现行子夹 == 0)
+        输出编辑框.可视 = (输出选择夹.现行子夹 == 1)
+    }
+
+    方法 调整内部布局 <公开>
+    参数 宽度2 <类型 = 整数>
+    参数 高度2 <类型 = 整数>
+    {
+        如果 (宽度2 < 1)
+        {
+            宽度2 = 1
+        }
+        如果 (高度2 < 1)
+        {
+            高度2 = 1
+        }
+        输出选择夹.可视 = 假
+        提示编辑框.移动 (0, 0, 宽度2, 高度2)
+        输出编辑框.移动 (0, 0, 宽度2, 高度2)
+        刷新页可视状态 ()
+    }
+
+    方法 安装原生菜单 <公开 @禁止流程检查 = 真>
+    {
+        @ static const TCHAR* kOldProcProp = _T ("ccide_output_old_proc");
+        @ static const TCHAR* kSelectingProp = _T ("ccide_output_selecting");
+        @ static const TCHAR* kSelectAnchorProp = _T ("ccide_output_select_anchor");
+        @ static const TCHAR* kSkipRButtonProp = _T ("ccide_output_skip_rbutton");
+        @ static const UINT kCopyId = 41001;
+        @ static const UINT kCopyAllId = 41002;
+        @ static const UINT kClearId = 41003;
+        @ struct COutputRichEditMenuHook
+        @ {
+        @     static void SetSelectionRange (HWND hWnd, LONG nAnchor, LONG nChar)
+        @     {
+        @         CHARRANGE cr;
+        @         ZERO_MEM (&cr, sizeof (cr));
+        @         if (nAnchor <= nChar)
+        @         {
+        @             cr.cpMin = nAnchor;
+        @             cr.cpMax = nChar;
+        @         }
+        @         else
+        @         {
+        @             cr.cpMin = nChar;
+        @             cr.cpMax = nAnchor;
+        @         }
+        @         if (cr.cpMax > cr.cpMin)
+        @             cr.cpMax++;
+        @         ::SetFocus (hWnd);
+        @         ::SendMessage (hWnd, EM_EXSETSEL, 0, (LPARAM)&cr);
+        @         ::SendMessage (hWnd, EM_HIDESELECTION, FALSE, 0);
+        @         ::RedrawWindow (hWnd, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+        @     }
+        @
+        @     static LONG CharFromClientPoint (HWND hWnd, LPARAM lParam)
+        @     {
+        @         POINTL pt;
+        @         pt.x = GET_X_LPARAM (lParam);
+        @         pt.y = GET_Y_LPARAM (lParam);
+        @         LRESULT result = ::SendMessage (hWnd, EM_CHARFROMPOS, 0, (LPARAM)&pt);
+        @         if (result < 0)
+        @             result = 0;
+        @         return (LONG)result;
+        @     }
+        @
+        @     static BOOL IsPointInTextArea (HWND hWnd, LPARAM lParam)
+        @     {
+        @         RECT rcText;
+        @         ZERO_MEM (&rcText, sizeof (rcText));
+        @         ::SendMessage (hWnd, EM_GETRECT, 0, (LPARAM)&rcText);
+        @         if (rcText.right <= rcText.left || rcText.bottom <= rcText.top)
+        @             ::GetClientRect (hWnd, &rcText);
+        @         POINT pt;
+        @         pt.x = GET_X_LPARAM (lParam);
+        @         pt.y = GET_Y_LPARAM (lParam);
+        @         return ::PtInRect (&rcText, pt);
+        @     }
+        @
+        @     static BOOL HandleSelectionDrag (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+        @     {
+        @         if (uMsg == WM_LBUTTONDOWN)
+        @         {
+        @             if (!IsPointInTextArea (hWnd, lParam))
+        @             {
+        @                 DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_OUTPUT_SELECT_SKIP_SCROLL"));
+        @                 return FALSE;
+        @             }
+        @             LONG nChar = CharFromClientPoint (hWnd, lParam);
+        @             ::SetProp (hWnd, kSelectingProp, (HANDLE)1);
+        @             ::SetProp (hWnd, kSelectAnchorProp, (HANDLE)(INT_PTR)(nChar + 1));
+        @             ::SetFocus (hWnd);
+        @             ::SetCapture (hWnd);
+        @             SetSelectionRange (hWnd, nChar, nChar);
+        @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_OUTPUT_SELECT_START"));
+        @             DebugTrace (FALSE, 0, 0, _T ("n"), nChar);
+        @             return TRUE;
+        @         }
+        @         if (uMsg == WM_MOUSEMOVE && (wParam & MK_LBUTTON) != 0 && ::GetProp (hWnd, kSelectingProp) != NULL)
+        @         {
+        @             LONG nAnchor = (LONG)((INT_PTR)::GetProp (hWnd, kSelectAnchorProp) - 1);
+        @             LONG nChar = CharFromClientPoint (hWnd, lParam);
+        @             if (nAnchor < 0)
+        @                 nAnchor = nChar;
+        @             SetSelectionRange (hWnd, nAnchor, nChar);
+        @             return TRUE;
+        @         }
+        @         if (uMsg == WM_LBUTTONUP && ::GetProp (hWnd, kSelectingProp) != NULL)
+        @         {
+        @             LONG nAnchor = (LONG)((INT_PTR)::GetProp (hWnd, kSelectAnchorProp) - 1);
+        @             LONG nChar = CharFromClientPoint (hWnd, lParam);
+        @             if (nAnchor >= 0)
+        @                 SetSelectionRange (hWnd, nAnchor, nChar);
+        @             ::RemoveProp (hWnd, kSelectingProp);
+        @             ::RemoveProp (hWnd, kSelectAnchorProp);
+        @             if (::GetCapture () == hWnd)
+        @                 ::ReleaseCapture ();
+        @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_OUTPUT_SELECT_END"));
+        @             DebugTrace (FALSE, 0, 0, _T ("n"), nChar);
+        @             return TRUE;
+        @         }
+        @         return FALSE;
+        @     }
+        @
+        @     static LRESULT CALLBACK Proc (HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+        @     {
+        @         WNDPROC oldProc = (WNDPROC)::GetProp (hWnd, kOldProcProp);
+        @         if (uMsg == WM_MOUSEACTIVATE)
+        @         {
+        @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_OUTPUT_EDIT_MOUSEACTIVATE"));
+        @             return MA_ACTIVATE;
+        @         }
+        @         if (uMsg == WM_LBUTTONDOWN || uMsg == WM_LBUTTONDBLCLK || uMsg == WM_RBUTTONDOWN)
+        @         {
+        @             DebugTrace (FALSE, 0, 0, _T ("S"), _T ("CCIDE_OUTPUT_EDIT_MOUSE"));
+        @             DebugTrace (FALSE, 0, 0, _T ("n"), (INT)uMsg);
+        @             DebugTrace (FALSE, 0, 0, _T ("n"), (INT_P)hWnd);
+        @             ::SetFocus (hWnd);
+        @         }
+        @         if (uMsg == WM_LBUTTONDOWN && HandleSelectionDrag (hWnd, uMsg, wParam, lParam))
+        @             return 0;
+        @         if ((uMsg == WM_RBUTTONUP || uMsg == WM_CONTEXTMENU) && ::GetProp (hWnd, kSkipRButtonProp) != NULL)
+        @         {
+        @             ::RemoveProp (hWnd, kSkipRButtonProp);
+        @             return 0;
+        @         }
+        @         if ((uMsg == WM_RBUTTONDOWN && IsPointInTextArea (hWnd, lParam)) || uMsg == WM_CONTEXTMENU || uMsg == WM_RBUTTONUP)
+        @         {
+        @             if (uMsg == WM_RBUTTONDOWN)
+        @                 ::SetProp (hWnd, kSkipRButtonProp, (HANDLE)1);
+        @             POINT pt;
+        @             if (uMsg == WM_CONTEXTMENU && lParam != (LPARAM)-1)
+        @             {
+        @                 pt.x = GET_X_LPARAM (lParam);
+        @                 pt.y = GET_Y_LPARAM (lParam);
+        @             }
+        @             else
+        @             {
+        @                 ::GetCursorPos (&pt);
+        @             }
+        @             HMENU hMenu = ::CreatePopupMenu ();
+        @             if (hMenu != NULL)
+        @             {
+        @                 CHARRANGE crOld;
+        @                 ZERO_MEM (&crOld, sizeof (crOld));
+        @                 ::SendMessage (hWnd, EM_EXGETSEL, 0, (LPARAM)&crOld);
+        @                 ::AppendMenu (hMenu, MF_STRING | (crOld.cpMin == crOld.cpMax ? MF_GRAYED : 0), kCopyId, _T ("复制"));
+        @                 ::AppendMenu (hMenu, MF_STRING, kCopyAllId, _T ("全部复制"));
+        @                 ::AppendMenu (hMenu, MF_STRING, kClearId, _T ("清空"));
+        @                 UINT nCmd = ::TrackPopupMenu (hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, NULL);
+        @                 ::DestroyMenu (hMenu);
+        @                 if (nCmd == kCopyId)
+        @                 {
+        @                     ::SendMessage (hWnd, WM_COPY, 0, 0);
+        @                     return 0;
+        @                 }
+        @                 if (nCmd == kCopyAllId)
+        @                 {
+        @                     ::SendMessage (hWnd, EM_SETSEL, 0, -1);
+        @                     ::SendMessage (hWnd, WM_COPY, 0, 0);
+        @                     ::SendMessage (hWnd, EM_EXSETSEL, 0, (LPARAM)&crOld);
+        @                     return 0;
+        @                 }
+        @                 if (nCmd == kClearId)
+        @                 {
+        @                     LONG_PTR nStyle = ::GetWindowLongPtr (hWnd, GWL_STYLE);
+        @                     if ((nStyle & ES_READONLY) != 0)
+        @                         ::SendMessage (hWnd, EM_SETREADONLY, FALSE, 0);
+        @                     ::SetWindowText (hWnd, _T (""));
+        @                     if ((nStyle & ES_READONLY) != 0)
+        @                         ::SendMessage (hWnd, EM_SETREADONLY, TRUE, 0);
+        @                     return 0;
+        @                 }
+        @             }
+        @             return 0;
+        @         }
+        @         if (uMsg == WM_NCDESTROY)
+        @         {
+        @             if (oldProc != NULL)
+        @             {
+        @                 ::SetWindowLongPtr (hWnd, GWLP_WNDPROC, (LONG_PTR)oldProc);
+        @                 ::RemoveProp (hWnd, kOldProcProp);
+        @                 ::RemoveProp (hWnd, kSelectingProp);
+        @                 ::RemoveProp (hWnd, kSelectAnchorProp);
+        @                 ::RemoveProp (hWnd, kSkipRButtonProp);
+        @                 return ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam);
+        @             }
+        @         }
+        @         return (oldProc != NULL ? ::CallWindowProc (oldProc, hWnd, uMsg, wParam, lParam) : ::DefWindowProc (hWnd, uMsg, wParam, lParam));
+        @     }
+        @ };
+        @ CWnd* pWnd = @<提示编辑框>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pWnd != NULL && pWnd->m_hWnd != NULL && ::GetProp (pWnd->m_hWnd, kOldProcProp) == NULL)
+        @ {
+        @     LONG_PTR nStyle = ::GetWindowLongPtr (pWnd->m_hWnd, GWL_STYLE);
+        @     ::SetWindowLongPtr (pWnd->m_hWnd, GWL_STYLE, nStyle | ES_NOHIDESEL);
+        @     ::SendMessage (pWnd->m_hWnd, EM_SETOPTIONS, ECOOP_OR, ECO_NOHIDESEL);
+        @     ::SendMessage (pWnd->m_hWnd, EM_HIDESELECTION, FALSE, 0);
+        @     WNDPROC oldProc = (WNDPROC)::SetWindowLongPtr (pWnd->m_hWnd, GWLP_WNDPROC, (LONG_PTR)COutputRichEditMenuHook::Proc);
+        @     if (oldProc != NULL)
+        @         ::SetProp (pWnd->m_hWnd, kOldProcProp, (HANDLE)oldProc);
+        @ }
+        @ pWnd = @<输出编辑框>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pWnd != NULL && pWnd->m_hWnd != NULL && ::GetProp (pWnd->m_hWnd, kOldProcProp) == NULL)
+        @ {
+        @     LONG_PTR nStyle = ::GetWindowLongPtr (pWnd->m_hWnd, GWL_STYLE);
+        @     ::SetWindowLongPtr (pWnd->m_hWnd, GWL_STYLE, nStyle | ES_NOHIDESEL);
+        @     ::SendMessage (pWnd->m_hWnd, EM_SETOPTIONS, ECOOP_OR, ECO_NOHIDESEL);
+        @     ::SendMessage (pWnd->m_hWnd, EM_HIDESELECTION, FALSE, 0);
+        @     WNDPROC oldProc = (WNDPROC)::SetWindowLongPtr (pWnd->m_hWnd, GWLP_WNDPROC, (LONG_PTR)COutputRichEditMenuHook::Proc);
+        @     if (oldProc != NULL)
+        @         ::SetProp (pWnd->m_hWnd, kOldProcProp, (HANDLE)oldProc);
+        @ }
+    }
+
+    方法 VS扩展停靠窗口_扩展VS创建完毕 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = VS扩展停靠窗口>
+    参数 标记值 <类型 = 整数>
+    {
+        内部页签位置 = 1
+        内部页签样式 = 1
+        内部页签背景颜色 = 0x00271811
+        内部页签选中背景颜色 = 0x00AF401E
+        内部页签文字颜色 = 0x00B8A394
+        内部页签选中文字颜色 = 0x00FCFAF8
+        内部页签高亮颜色 = 0x00F8BD38
+        输出选择夹.现行子夹 = 1
+        输出选择夹.刷新子夹内容 ()
+        应用页签位置 ()
+        应用页签样式 ()
+        提示编辑框.内容 = "提示面板已就绪。"
+        调整内部布局 (宽度, 高度)
+        刷新页可视状态 ()
+        设置面板颜色 ()
+        安装原生菜单 ()
+        返回 (0)
+    }
+
+    方法 VS扩展停靠窗口_扩展VS尺寸被改变 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = VS扩展停靠窗口>
+    参数 标记值 <类型 = 整数>
+    参数 宽度2 <类型 = 整数>
+    参数 高度2 <类型 = 整数>
+    参数 调整类型 <类型 = 整数>
+    {
+        调整内部布局 (宽度2, 高度2)
+        返回 (0)
+    }
+
+    方法 选择夹_子夹被改变 <公开 接收事件 类型 = 整数>
+    参数 来源对象 <类型 = 选择夹>
+    参数 标记值 <类型 = 整数>
+    {
+        如果 (来源对象 == 输出选择夹)
+        {
+            刷新页可视状态 ()
+            输出标签被改变 (输出选择夹.现行子夹)
+        }
+        返回 (0)
+    }
+
+    方法 选择夹_将改变子夹 <公开 接收事件 类型 = 整数>
+    参数 来源对象 <类型 = 选择夹>
+    参数 标记值 <类型 = 整数>
+    {
+        返回 (0)
+    }
+
+    方法 选择夹_被单击 <公开 接收事件 类型 = 整数>
+    参数 来源对象 <类型 = 选择夹>
+    参数 标记值 <类型 = 整数>
+    {
+        如果 (来源对象 == 输出选择夹)
+        {
+            刷新页可视状态 ()
+            输出标签被改变 (输出选择夹.现行子夹)
+        }
+        返回 (0)
+    }
+}
+
+类 日志提示停靠窗口 <公开 基础类 = VS扩展停靠窗口 注释 = "IDE底部提示停靠页" @视窗.布局 = "client_size = \"800, 220\"">
+{
+    变量 提示编辑框 <公开 类型 = 超级编辑框
+            @视窗.布局 = "id = 1111\r\npos = \"0, 0, 800, 220\"\r\n是否允许多行 = 真\r\n只读 = 真\r\n纯文本模式 = 真\r\n自动换行 = 真"
+            背景颜色 = 0x00111827 字体 = "微软雅黑, 10">
+
+    方法 设置面板颜色 <公开 @禁止流程检查 = 真>
+    {
+        @ CWnd* pEdit = @<提示编辑框>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pEdit != NULL && pEdit->m_hWnd != NULL)
+        @ {
+        @     ::SendMessage (pEdit->m_hWnd, EM_SETBKGNDCOLOR, 0, RGB (17, 24, 39));
+        @     CHARFORMAT2 cf;
+        @     ZeroMemory (&cf, sizeof (cf));
+        @     cf.cbSize = sizeof (cf);
+        @     cf.dwMask = CFM_COLOR;
+        @     cf.crTextColor = RGB (226, 232, 240);
+        @     ::SendMessage (pEdit->m_hWnd, EM_SETCHARFORMAT, SCF_ALL, (LPARAM)&cf);
+        @     ::SendMessage (pEdit->m_hWnd, EM_SETCHARFORMAT, SCF_DEFAULT, (LPARAM)&cf);
+        @     ::InvalidateRect (pEdit->m_hWnd, NULL, TRUE);
+        @ }
+    }
+
+    方法 调整内部布局 <公开>
+    参数 宽度2 <类型 = 整数>
+    参数 高度2 <类型 = 整数>
+    {
+        如果 (宽度2 < 1)
+        {
+            宽度2 = 1
+        }
+        如果 (高度2 < 1)
+        {
+            高度2 = 1
+        }
+        提示编辑框.移动 (0, 0, 宽度2, 高度2)
+    }
+
+    方法 VS扩展停靠窗口_扩展VS创建完毕 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = VS扩展停靠窗口>
+    参数 标记值 <类型 = 整数>
+    {
+        提示编辑框.内容 = "提示面板已就绪。"
+        调整内部布局 (宽度, 高度)
+        设置面板颜色 ()
+        返回 (0)
+    }
+
+    方法 VS扩展停靠窗口_扩展VS尺寸被改变 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = VS扩展停靠窗口>
+    参数 标记值 <类型 = 整数>
+    参数 宽度2 <类型 = 整数>
+    参数 高度2 <类型 = 整数>
+    参数 调整类型 <类型 = 整数>
+    {
+        调整内部布局 (宽度2, 高度2)
+        返回 (0)
+    }
+}
+
+# ===
+
+类 VS停靠窗口 <公开 基础类 = MDI子窗口 注释 = "当前项目专用的VS式停靠窗口封装.底层使用mfc_ui_mdi中的CDockablePane,需要父窗口为MDI主窗口.">
+{
+    变量 内部最小宽度 <类型 = 整数>
+    变量 内部最小高度 <类型 = 整数>
+    变量 内部允许停靠位置 <类型 = 整数>
+
+    方法 VS创建完毕 <公开 定义事件 类型 = 整数 注释 = "调用创建VS停靠窗口成功后发送.">
+
+    方法 VS可视状态被改变 <公开 定义事件 类型 = 整数 注释 = "通过停靠可视属性或显示停靠窗口方法改变可视状态后发送.">
+    参数 是否显示 <类型 = 逻辑型>
+
+    方法 VS标题被改变 <公开 定义事件 类型 = 整数 注释 = "通过停靠标题属性修改标题后发送.">
+    参数 新标题 <类型 = 文本型>
+
+    方法 VS被激活 <公开 定义事件 类型 = 整数 注释 = "通过激活停靠窗口方法激活本停靠窗口后发送.">
+
+    方法 VS允许停靠位置被改变 <公开 定义事件 类型 = 整数 注释 = "通过允许停靠位置属性修改可停靠方向后发送.">
+    参数 允许停靠位置 <类型 = 整数>
+
+    方法 VS最小尺寸被改变 <公开 定义事件 类型 = 整数 注释 = "通过最小宽度或最小高度属性修改停靠窗口最小尺寸后发送.">
+    参数 最小宽度 <类型 = 整数>
+    参数 最小高度 <类型 = 整数>
+
+    方法 VS将被销毁 <公开 定义事件 类型 = 整数 注释 = "调用销毁停靠窗口并且底层窗口存在时,销毁前发送.">
+
+    方法 创建VS停靠窗口 <公开 类型 = 逻辑型 注释 = "创建可拖拽停靠/浮动/自动隐藏的MFC停靠窗口.父窗口必须是MDI主窗口.">
+    参数 标题 <类型 = 文本型 注释 = "停靠窗口标题">
+    参数 父窗口 <类型 = MDI主窗口 注释 = "承载停靠窗口的MDI主窗口">
+    参数 ID值 <类型 = 整数 注释 = "停靠窗口ID,同一父窗口内必须唯一">
+    参数 停靠位置 <类型 = 组件停靠位置 注释 = "初始停靠位置">
+    参数 允许停靠位置 <类型 = 整数 注释 = "允许拖拽停靠的位置,可使用组件允许停靠位置中的常量组合." @默认值 = 组件允许停靠位置.任意边>
+    参数 初始宽度 <类型 = 整数 注释 = "初始宽度" @默认值 = 260>
+    参数 初始高度 <类型 = 整数 注释 = "初始高度" @默认值 = 260>
+    参数 是否有调节器 <类型 = 逻辑型 注释 = "是否显示可拖拽调节器" @默认值 = 真>
+    {
+        变量 创建结果 <类型 = 逻辑型>
+        创建结果 = 创建 (标题, 父窗口, ID值, 停靠位置, 允许停靠位置, 空资源.空图标, 是否有调节器, 0, 0, 初始宽度, 初始高度)
+        如果 (创建结果)
+        {
+            内部允许停靠位置 = 允许停靠位置
+            VS创建完毕 ()
+        }
+        返回 (创建结果)
+    }
+
+    方法 停靠标题 <公开 属性读 类型 = 文本型 注释 = "返回停靠窗口标题." @禁止流程检查 = 真>
+    {
+        @ CString strText;
+        @ if (data ().GetSafeHwnd () != NULL)
+        @     data ().GetWindowText (strText);
+        @ return CVolString ((LPCTSTR)strText);
+    }
+
+    方法 停靠标题 <公开 属性写 注释 = "修改停靠窗口标题.">
+    参数 新标题 <类型 = 文本型>
+    {
+        @ if (data ().GetSafeHwnd () != NULL)
+        @     data ().SetWindowText (@<新标题>.GetText ());
+        VS标题被改变 (新标题)
+    }
+
+    方法 停靠可视 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口当前是否可视.">
+    {
+        返回 (是否可视)
+    }
+
+    方法 停靠可视 <公开 属性写 注释 = "显示或隐藏停靠窗口.">
+    参数 是否显示 <类型 = 逻辑型>
+    {
+        是否可视 = 是否显示
+        VS可视状态被改变 (是否显示)
+    }
+
+    方法 允许停靠位置 <公开 属性读 类型 = 整数 注释 = "返回最近设置的允许停靠位置.">
+    {
+        返回 (内部允许停靠位置)
+    }
+
+    方法 允许停靠位置 <公开 属性写 注释 = "设置允许拖拽停靠的位置,可使用组件允许停靠位置中的常量组合.">
+    参数 新允许停靠位置 <类型 = 整数>
+    {
+        内部允许停靠位置 = 新允许停靠位置
+        @ if (data ().GetSafeHwnd () != NULL)
+        @     data ().EnableDocking (@<新允许停靠位置>);
+        VS允许停靠位置被改变 (新允许停靠位置)
+    }
+
+    方法 最小宽度 <公开 属性读 类型 = 整数 注释 = "返回最近设置的最小宽度.">
+    {
+        返回 (内部最小宽度)
+    }
+
+    方法 最小宽度 <公开 属性写 注释 = "设置停靠窗口最小宽度.">
+    参数 新最小宽度 <类型 = 整数>
+    {
+        内部最小宽度 = 新最小宽度
+        应用最小尺寸 ()
+        VS最小尺寸被改变 (内部最小宽度, 内部最小高度)
+    }
+
+    方法 最小高度 <公开 属性读 类型 = 整数 注释 = "返回最近设置的最小高度.">
+    {
+        返回 (内部最小高度)
+    }
+
+    方法 最小高度 <公开 属性写 注释 = "设置停靠窗口最小高度.">
+    参数 新最小高度 <类型 = 整数>
+    {
+        内部最小高度 = 新最小高度
+        应用最小尺寸 ()
+        VS最小尺寸被改变 (内部最小宽度, 内部最小高度)
+    }
+
+    方法 是否已创建 <公开 属性读 类型 = 逻辑型 注释 = "返回底层停靠窗句柄是否已经创建." @嵌入式方法 = "">
+    {
+        @ (BOOL)(@sn<this>.data ().GetSafeHwnd () != NULL)
+    }
+
+    方法 是否浮动 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口当前是否处于浮动状态." @嵌入式方法 = "">
+    {
+        @ (BOOL)@sn<this>.data ().IsFloating ()
+    }
+
+    方法 停靠窗口句柄 <公开 属性读 类型 = 变整数 注释 = "返回CDockablePane窗口句柄(HWND)." @嵌入式方法 = "">
+    {
+        @ (INT_P)@sn<this>.data ().GetSafeHwnd ()
+    }
+
+    方法 内容窗口句柄 <公开 属性读 类型 = 变整数 注释 = "返回停靠窗内部承载的火山控件窗口句柄(HWND)." @嵌入式方法 = "">
+    {
+        @ (INT_P)@sn<this>.data ().GetUserWnd ()
+    }
+
+    方法 显示停靠窗口 <公开 注释 = "显示或隐藏停靠窗口.">
+    参数 是否显示 <类型 = 逻辑型>
+    {
+        停靠可视 = 是否显示
+    }
+
+    方法 取停靠窗口可视 <公开 类型 = 逻辑型 注释 = "返回停靠窗口当前是否可视.">
+    {
+        返回 (停靠可视)
+    }
+
+    方法 激活停靠窗口 <公开 注释 = "显示并激活停靠窗口.">
+    {
+        激活子窗口 ()
+        VS被激活 ()
+    }
+
+    方法 销毁停靠窗口 <公开 类型 = 逻辑型 注释 = "销毁底层CDockablePane窗口.成功发起销毁返回真,窗口不存在返回假." @禁止流程检查 = 真>
+    {
+        @ if (data ().GetSafeHwnd () == NULL)
+        @     return FALSE;
+        VS将被销毁 ()
+        @ return data ().DestroyWindow ();
+    }
+
+    方法 应用最小尺寸 <注释 = "将最小宽高应用到底层MFC pane." "">
+    {
+        @ if (data ().GetSafeHwnd () != NULL)
+        @     data ().SetMinSize (CSize (@<内部最小宽度>, @<内部最小高度>));
+    }
+}
+
+# ===
+
+类 VS扩展停靠窗口 <公开 基础类 = 组件布局器 注释 = "当前项目专用的扩展VS式停靠窗口.使用项目内置CVolWndBarEx承载类,可以接收拖拽、浮动、自动隐藏、标题、关闭等底层事件."
+        @视窗.后缀文本 = "public ICcIdeDockPaneSink">
+{
+    变量 内部允许停靠位置 <类型 = 整数>
+    变量 内部最小宽度 <类型 = 整数>
+    变量 内部最小高度 <类型 = 整数>
+    变量 内部是否有调节器 <类型 = 逻辑型>
+
+    方法 扩展VS创建完毕 <公开 定义事件 类型 = 整数 注释 = "调用创建VS扩展停靠窗口成功后发送.">
+
+    方法 扩展VS可视状态被改变 <公开 定义事件 类型 = 整数 注释 = "底层CDockablePane可视状态改变后发送.">
+    参数 是否显示 <类型 = 逻辑型>
+
+    方法 扩展VS尺寸被改变 <公开 定义事件 类型 = 整数 注释 = "底层CDockablePane尺寸改变后发送.">
+    参数 宽度 <类型 = 整数>
+    参数 高度 <类型 = 整数>
+    参数 调整类型 <类型 = 整数>
+
+    方法 扩展VS位置被改变 <公开 定义事件 类型 = 整数 注释 = "底层CDockablePane位置或停靠布局发生变化后发送.">
+
+    方法 扩展VS浮动状态被改变 <公开 定义事件 类型 = 整数 注释 = "底层CDockablePane浮动状态改变后发送.">
+    参数 是否浮动 <类型 = 逻辑型>
+
+    方法 扩展VS自动隐藏状态被改变 <公开 定义事件 类型 = 整数 注释 = "底层CDockablePane自动隐藏状态改变后发送.">
+    参数 是否自动隐藏 <类型 = 逻辑型>
+
+    方法 扩展VS停靠位置被改变 <公开 定义事件 类型 = 整数 注释 = "底层CDockablePane当前停靠方向改变后发送.">
+    参数 停靠位置 <类型 = 整数>
+
+    方法 扩展VS标题被改变 <公开 定义事件 类型 = 整数 注释 = "底层CDockablePane标题改变后发送.">
+    参数 新标题 <类型 = 文本型>
+
+    方法 扩展VS获得焦点 <公开 定义事件 类型 = 整数 注释 = "底层CDockablePane获得焦点后发送.">
+
+    方法 扩展VS将被关闭 <公开 定义事件 类型 = 整数 注释 = "底层CDockablePane收到关闭消息前发送.">
+
+    方法 扩展VS将被销毁 <公开 定义事件 类型 = 整数 注释 = "底层CDockablePane销毁前发送.">
+
+    方法 扩展VS最小尺寸被改变 <公开 定义事件 类型 = 整数 注释 = "通过最小宽度/最小高度属性修改后发送.">
+    参数 最小宽度 <类型 = 整数>
+    参数 最小高度 <类型 = 整数>
+
+    方法 扩展VS允许停靠位置被改变 <公开 定义事件 类型 = 整数 注释 = "通过允许停靠位置属性修改后发送.">
+    参数 允许停靠位置 <类型 = 整数>
+
+    方法 扩展VS控制样式被改变 <公开 定义事件 类型 = 整数 注释 = "通过关闭/自动隐藏/调整大小等能力属性修改后发送.">
+    参数 控制样式 <类型 = 整数>
+    参数 修改标志 <类型 = 整数>
+    参数 是否启用 <类型 = 逻辑型>
+
+    方法 扩展VS调节器状态被改变 <公开 定义事件 类型 = 整数 注释 = "标题栏调节器显示状态改变后发送.">
+    参数 是否有调节器 <类型 = 逻辑型>
+
+    方法 创建VS扩展停靠窗口 <公开 类型 = 逻辑型 注释 = "创建可拖拽停靠/浮动/自动隐藏的扩展MFC停靠窗口.父窗口必须是MDI主窗口." @禁止流程检查 = 真>
+    参数 标题 <类型 = 文本型 注释 = "停靠窗口标题">
+    参数 父窗口 <类型 = MDI主窗口 注释 = "承载停靠窗口的MDI主窗口">
+    参数 ID值 <类型 = 整数 注释 = "停靠窗口ID,同一父窗口内必须唯一">
+    参数 停靠位置 <类型 = 组件停靠位置 注释 = "初始停靠位置">
+    参数 允许停靠位置 <类型 = 整数 注释 = "允许拖拽停靠的位置,可使用组件允许停靠位置中的常量组合." @默认值 = 组件允许停靠位置.任意边>
+    参数 初始宽度 <类型 = 整数 注释 = "初始宽度" @默认值 = 260>
+    参数 初始高度 <类型 = 整数 注释 = "初始高度" @默认值 = 260>
+    参数 是否有调节器 <类型 = 逻辑型 注释 = "是否显示可拖拽调节器" @默认值 = 真>
+    {
+        @ if (GetMfcWndHandle () != NULL || data ().m_hWnd != NULL)
+        @     return FALSE;
+        @ CMDIFrameWndEx* pwndParent = (CMDIFrameWndEx*)@<父窗口>.GetMfcWndPtrWithValidHWnd ();
+        @ if (pwndParent == NULL || data ().CreateVolBar (this, @<标题>.GetText (), pwndParent,
+        @         CMRect (0, 0, @<初始宽度>, @<初始高度>), @<是否有调节器>, @<ID值>,
+        @         (WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | CBRS_FLOAT_MULTI | @<停靠位置>)) == FALSE)
+        @     return FALSE;
+        @ data ().EnableDocking (@<允许停靠位置>);
+        @ if ((@<停靠位置> & CBRS_ALIGN_ANY) != 0)
+        @     pwndParent->DockPane (pdata ());
+        内部允许停靠位置 = 允许停靠位置
+        内部是否有调节器 = 是否有调节器
+        扩展VS创建完毕 ()
+        返回 (真)
+    }
+
+    方法 停靠标题 <公开 属性读 类型 = 文本型 注释 = "返回停靠窗口标题." @禁止流程检查 = 真>
+    {
+        @ CString strText;
+        @ if (data ().GetSafeHwnd () != NULL)
+        @     data ().GetWindowText (strText);
+        @ return CVolString ((LPCTSTR)strText);
+    }
+
+    方法 停靠标题 <公开 属性写 注释 = "修改停靠窗口标题.">
+    参数 新标题 <类型 = 文本型>
+    {
+        @ if (data ().GetSafeHwnd () != NULL)
+        @     data ().SetWindowText (@<新标题>.GetText ());
+    }
+
+    方法 停靠可视 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口当前是否可视." @嵌入式方法 = "">
+    {
+        @ (BOOL)@sn<this>.data ().IsVisible ()
+    }
+
+    方法 停靠可视 <公开 属性写 注释 = "显示或隐藏停靠窗口.">
+    参数 是否显示 <类型 = 逻辑型>
+    {
+        @ data ().SetVisibleState (@<是否显示>);
+    }
+
+    方法 允许停靠位置 <公开 属性读 类型 = 整数 注释 = "返回最近设置的允许停靠位置.">
+    {
+        返回 (内部允许停靠位置)
+    }
+
+    方法 允许停靠位置 <公开 属性写 注释 = "设置允许拖拽停靠的位置,可使用组件允许停靠位置中的常量组合.">
+    参数 新允许停靠位置 <类型 = 整数>
+    {
+        内部允许停靠位置 = 新允许停靠位置
+        @ data ().SetDockEnable (@<新允许停靠位置>);
+    }
+
+    方法 最小宽度 <公开 属性读 类型 = 整数 注释 = "返回最近设置的最小宽度.">
+    {
+        返回 (内部最小宽度)
+    }
+
+    方法 最小宽度 <公开 属性写 注释 = "设置停靠窗口最小宽度.">
+    参数 新最小宽度 <类型 = 整数>
+    {
+        内部最小宽度 = 新最小宽度
+        应用最小尺寸 ()
+    }
+
+    方法 最小高度 <公开 属性读 类型 = 整数 注释 = "返回最近设置的最小高度.">
+    {
+        返回 (内部最小高度)
+    }
+
+    方法 最小高度 <公开 属性写 注释 = "设置停靠窗口最小高度.">
+    参数 新最小高度 <类型 = 整数>
+    {
+        内部最小高度 = 新最小高度
+        应用最小尺寸 ()
+    }
+
+    方法 自动隐藏 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口当前是否处于自动隐藏状态." @嵌入式方法 = "">
+    {
+        @ (BOOL)@sn<this>.data ().IsAutoHideMode ()
+    }
+
+    方法 自动隐藏 <公开 属性写 注释 = "设置停靠窗口是否自动隐藏.">
+    参数 是否自动隐藏 <类型 = 逻辑型>
+    {
+        设置自动隐藏 (是否自动隐藏, 0)
+    }
+
+    方法 停靠方向 <公开 属性读 类型 = 整数 注释 = "返回当前停靠方向,对应CBRS_ALIGN_*组合值." @嵌入式方法 = "">
+    {
+        @ (INT)@sn<this>.data ().GetCurrentAlignment ()
+    }
+
+    方法 停靠方向 <公开 属性写 注释 = "将停靠窗口重新停靠到当前主窗口指定方向.">
+    参数 新停靠方向 <类型 = 整数>
+    {
+        @ data ().DockToCurrentFrame (@<新停靠方向>);
+    }
+
+    方法 允许关闭 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口是否允许显示并响应关闭按钮." @嵌入式方法 = "">
+    {
+        @ (BOOL)@sn<this>.data ().CanBeClosed ()
+    }
+
+    方法 允许关闭 <公开 属性写 注释 = "设置停靠窗口是否允许关闭按钮.">
+    参数 是否允许 <类型 = 逻辑型>
+    {
+        @ data ().SetControlStyleFlag (AFX_CBRS_CLOSE, @<是否允许>);
+    }
+
+    方法 允许自动隐藏 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口是否允许自动隐藏." @嵌入式方法 = "">
+    {
+        @ (BOOL)@sn<this>.data ().CanAutoHide ()
+    }
+
+    方法 允许自动隐藏 <公开 属性写 注释 = "设置停靠窗口是否允许自动隐藏.">
+    参数 是否允许 <类型 = 逻辑型>
+    {
+        @ data ().SetControlStyleFlag (AFX_CBRS_AUTOHIDE, @<是否允许>);
+    }
+
+    方法 允许调整大小 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口是否允许调整大小." @嵌入式方法 = "">
+    {
+        @ (BOOL)@sn<this>.data ().CanBeResized ()
+    }
+
+    方法 允许调整大小 <公开 属性写 注释 = "设置停靠窗口是否允许调整大小.">
+    参数 是否允许 <类型 = 逻辑型>
+    {
+        @ data ().SetControlStyleFlag (AFX_CBRS_RESIZE, @<是否允许>);
+    }
+
+    方法 有调节器 <公开 属性读 类型 = 逻辑型 注释 = "返回标题栏调节器是否启用.">
+    {
+        返回 (内部是否有调节器)
+    }
+
+    方法 有调节器 <公开 属性写 注释 = "设置标题栏调节器是否启用.">
+    参数 是否有 <类型 = 逻辑型>
+    {
+        内部是否有调节器 = 是否有
+        @ data ().SetGripperState (@<是否有>);
+    }
+
+    方法 是否已创建 <公开 属性读 类型 = 逻辑型 注释 = "返回底层停靠窗句柄是否已经创建." @嵌入式方法 = "">
+    {
+        @ (BOOL)(@sn<this>.data ().GetSafeHwnd () != NULL)
+    }
+
+    方法 是否浮动 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口当前是否处于浮动状态." @嵌入式方法 = "">
+    {
+        @ (BOOL)@sn<this>.data ().IsFloating ()
+    }
+
+    方法 是否已停靠 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口当前是否停靠在主框架或其它停靠容器内." @嵌入式方法 = "">
+    {
+        @ (BOOL)@sn<this>.data ().IsDocked ()
+    }
+
+    方法 是否已选择夹化 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口当前是否处于停靠窗口标签组中." @嵌入式方法 = "">
+    {
+        @ (BOOL)@sn<this>.data ().IsTabbed ()
+    }
+
+    方法 允许浮动 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口是否允许浮动." @嵌入式方法 = "">
+    {
+        @ (BOOL)@sn<this>.data ().CanFloat ()
+    }
+
+    方法 允许浮动 <公开 属性写 注释 = "设置停靠窗口是否允许浮动.">
+    参数 是否允许 <类型 = 逻辑型>
+    {
+        @ data ().SetControlStyleFlag (AFX_CBRS_FLOAT, @<是否允许>);
+    }
+
+    方法 是否自动隐藏 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口当前是否处于自动隐藏状态." @嵌入式方法 = "">
+    {
+        @ (BOOL)@sn<this>.data ().IsAutoHideMode ()
+    }
+
+    方法 停靠位置 <公开 属性读 类型 = 整数 注释 = "返回底层CDockablePane当前停靠方向." @嵌入式方法 = "">
+    {
+        @ (INT)@sn<this>.data ().GetCurrentAlignment ()
+    }
+
+    方法 当前左边 <公开 属性读 类型 = 整数 注释 = "返回停靠窗口当前屏幕坐标左边." @嵌入式方法 = "">
+    {
+        @ @sn<this>.data ().GetRectValue (0)
+    }
+
+    方法 当前顶边 <公开 属性读 类型 = 整数 注释 = "返回停靠窗口当前屏幕坐标顶边." @嵌入式方法 = "">
+    {
+        @ @sn<this>.data ().GetRectValue (1)
+    }
+
+    方法 当前宽度 <公开 属性读 类型 = 整数 注释 = "返回停靠窗口当前宽度." @嵌入式方法 = "">
+    {
+        @ @sn<this>.data ().GetRectValue (2)
+    }
+
+    方法 当前高度 <公开 属性读 类型 = 整数 注释 = "返回停靠窗口当前高度." @嵌入式方法 = "">
+    {
+        @ @sn<this>.data ().GetRectValue (3)
+    }
+
+    方法 停靠窗口句柄 <公开 属性读 类型 = 变整数 注释 = "返回CDockablePane窗口句柄(HWND)." @嵌入式方法 = "">
+    {
+        @ (INT_P)@sn<this>.data ().GetSafeHwnd ()
+    }
+
+    方法 内容窗口句柄 <公开 属性读 类型 = 变整数 注释 = "返回停靠窗内部承载的火山控件窗口句柄(HWND)." @嵌入式方法 = "">
+    {
+        @ (INT_P)@sn<this>.data ().GetUserWnd ()
+    }
+
+    方法 设置自动隐藏 <公开 类型 = 逻辑型 注释 = "设置当前停靠窗口是否进入自动隐藏状态.停靠方向为0时使用当前方向." @禁止流程检查 = 真>
+    参数 是否自动隐藏 <类型 = 逻辑型>
+    参数 停靠方向 <类型 = 整数 注释 = "组件允许停靠位置中的某一边,为0时使用当前方向." @默认值 = 0>
+    {
+        @ return data ().SetAutoHideState (@<是否自动隐藏>, @<停靠方向>);
+    }
+
+    方法 浮动显示 <公开 类型 = 逻辑型 注释 = "将停靠窗口切换为浮动窗口并设置浮动矩形." @禁止流程检查 = 真>
+    参数 左边 <类型 = 整数>
+    参数 顶边 <类型 = 整数>
+    参数 宽度 <类型 = 整数 注释 = "小于等于0时使用默认宽度." @默认值 = 320>
+    参数 高度 <类型 = 整数 注释 = "小于等于0时使用默认高度." @默认值 = 240>
+    {
+        @ return data ().FloatAt (@<左边>, @<顶边>, @<宽度>, @<高度>);
+    }
+
+    方法 停靠到主窗口 <公开 类型 = 逻辑型 注释 = "将窗口重新停靠到MDI主窗口指定方向." @禁止流程检查 = 真>
+    参数 父窗口 <类型 = MDI主窗口>
+    参数 停靠方向 <类型 = 整数 注释 = "使用组件允许停靠位置中的某一边.">
+    {
+        @ return data ().DockToFrame ((CMDIFrameWndEx*)@<父窗口>.GetMfcWndPtrWithValidHWnd (), @<停靠方向>);
+    }
+
+    方法 移动浮动窗口 <公开 类型 = 逻辑型 注释 = "移动/调整浮动状态下的停靠窗口矩形." @禁止流程检查 = 真>
+    参数 左边 <类型 = 整数>
+    参数 顶边 <类型 = 整数>
+    参数 宽度 <类型 = 整数>
+    参数 高度 <类型 = 整数>
+    {
+        @ return data ().MoveFloatingRect (@<左边>, @<顶边>, @<宽度>, @<高度>);
+    }
+
+    方法 停靠到其它窗口 <公开 类型 = 逻辑型 注释 = "将当前停靠窗口停靠到另一个VS扩展停靠窗口的指定边." @禁止流程检查 = 真>
+    参数 目标窗口 <类型 = VS扩展停靠窗口>
+    参数 停靠方向 <类型 = 整数 注释 = "使用组件允许停靠位置中的某一边.">
+    {
+        @ return data ().DockNextToPane (@<目标窗口>.pdata (), @<停靠方向>);
+    }
+
+    方法 组合到VS停靠选择夹 <公开 类型 = 逻辑型 注释 = "将当前停靠窗口组合到目标VS扩展停靠窗口所在的标签组." @禁止流程检查 = 真>
+    参数 目标窗口 <类型 = VS扩展停靠窗口>
+    参数 是否激活 <类型 = 逻辑型 @默认值 = 真>
+    {
+        @ return data ().AttachAsTabToPane (@<目标窗口>.pdata (), @<是否激活>);
+    }
+
+    方法 脱离停靠窗口 <公开 类型 = 逻辑型 注释 = "从当前停靠/标签容器中脱离,通常配合浮动显示或重新停靠使用." @禁止流程检查 = 真>
+    参数 是否延迟 <类型 = 逻辑型 @默认值 = 假>
+    {
+        @ return data ().UndockFromFrame (@<是否延迟>);
+    }
+
+    方法 保存停靠状态 <公开 类型 = 逻辑型 注释 = "保存当前停靠窗口状态到MFC配置项.配置名称为空时使用MFC默认配置." @禁止流程检查 = 真>
+    参数 配置名称 <类型 = 文本型 @默认值 = "">
+    参数 索引 <类型 = 整数 @默认值 = -1>
+    参数 ID值 <类型 = 整数 @默认值 = -1>
+    {
+        @ return data ().SavePaneState (@<配置名称>.GetText (), @<索引>, (UINT)@<ID值>);
+    }
+
+    方法 读取停靠状态 <公开 类型 = 逻辑型 注释 = "从MFC配置项读取当前停靠窗口状态.配置名称为空时使用MFC默认配置." @禁止流程检查 = 真>
+    参数 配置名称 <类型 = 文本型 @默认值 = "">
+    参数 索引 <类型 = 整数 @默认值 = -1>
+    参数 ID值 <类型 = 整数 @默认值 = -1>
+    {
+        @ return data ().LoadPaneState (@<配置名称>.GetText (), @<索引>, (UINT)@<ID值>);
+    }
+
+    方法 激活停靠窗口 <公开 注释 = "显示并激活停靠窗口.">
+    {
+        @ data ().ActivatePaneTab ();
+    }
+
+    方法 销毁停靠窗口 <公开 类型 = 逻辑型 注释 = "销毁底层CDockablePane窗口.成功发起销毁返回真,窗口不存在返回假." @禁止流程检查 = 真>
+    {
+        @ return (data ().GetSafeHwnd () != NULL ? data ().DestroyWindow () : FALSE);
+    }
+
+    方法 重画停靠窗口 <公开 注释 = "重画停靠窗内部用户窗口.">
+    {
+        @ data ().Redraw ();
+    }
+
+    方法 组合VS停靠选择夹 <公开 静态 注释 = "将多个VS扩展停靠窗口组合成标签停靠窗口.所有窗口必须已经创建." @嵌入式方法 = "">
+    参数 所组合窗口 <类型 = VS扩展停靠窗口 注释 = "提供欲组合到同一标签组的停靠窗口" @可扩展 = "d_text = \".pdata (), \"">
+    {
+        @ CCcIdeWndBarEx::sDockControls (NUM_CHARS_OF_TEXT (@sn<pm_types>), @<所组合窗口>.pdata ())
+    }
+
+    方法 应用最小尺寸 <注释 = "将最小宽高应用到底层MFC pane.">
+    {
+        @ data ().SetMinTrackSize (@<内部最小宽度>, @<内部最小高度>);
+    }
+
+    # --
+    # @begin
+    # @m<DECLARE_REF_OBJECT_CLASS_WITH_DATA> (CCcIdeWndBarEx)
+    # <> <include>
+    # virtual HWND OnCreateChildWnd (INT nLeft, INT nTop, INT nWidth, INT nHeight) override;
+    # virtual void OnDockPaneEvent (INT nEvent, INT nValue1, INT nValue2, INT nValue3, INT nValue4) override;
+    # <> </include>
+    #
+    # HWND @sn<current_class>::OnCreateChildWnd (INT nLeft, INT nTop, INT nWidth, INT nHeight)
+    # {
+    #     ASSERT (GetMfcWndHandle () == NULL && data ().m_hWnd != NULL);
+    #     CVolNativeWndCreateParam param (pdata (), nLeft, nTop, nWidth, nHeight, 1);
+    #     return (CreateMfcControl (&param) ? GetMfcWndHandle () : NULL);
+    # }
+    #
+    # void @sn<current_class>::OnDockPaneEvent (INT nEvent, INT nValue1, INT nValue2, INT nValue3, INT nValue4)
+    # {
+    #     switch (nEvent)
+    #     {
+    #     case CCIDE_DOCK_EVT_VISIBLE_CHANGED:
+    #         @<扩展VS可视状态被改变> (nValue1 != 0);
+    #         break;
+    #     case CCIDE_DOCK_EVT_SIZE_CHANGED:
+    #         @<扩展VS尺寸被改变> (nValue1, nValue2, nValue3);
+    #         break;
+    #     case CCIDE_DOCK_EVT_POSITION_CHANGED:
+    #         @<扩展VS位置被改变> ();
+    #         break;
+    #     case CCIDE_DOCK_EVT_FLOAT_CHANGED:
+    #         @<扩展VS浮动状态被改变> (nValue1 != 0);
+    #         break;
+    #     case CCIDE_DOCK_EVT_AUTO_HIDE_CHANGED:
+    #         @<扩展VS自动隐藏状态被改变> (nValue1 != 0);
+    #         break;
+    #     case CCIDE_DOCK_EVT_DOCK_ALIGN_CHANGED:
+    #         @<扩展VS停靠位置被改变> (nValue1);
+    #         break;
+    #     case CCIDE_DOCK_EVT_TITLE_CHANGED:
+    #         {
+    #             CString strText;
+    #             data ().GetWindowText (strText);
+    #             @<扩展VS标题被改变> (CVolString ((LPCTSTR)strText));
+    #         }
+    #         break;
+    #     case CCIDE_DOCK_EVT_FOCUS:
+    #         @<扩展VS获得焦点> ();
+    #         break;
+    #     case CCIDE_DOCK_EVT_CLOSING:
+    #         @<扩展VS将被关闭> ();
+    #         break;
+    #     case CCIDE_DOCK_EVT_DESTROYING:
+    #         @<扩展VS将被销毁> ();
+    #         break;
+    #     case CCIDE_DOCK_EVT_MIN_SIZE_CHANGED:
+    #         @<扩展VS最小尺寸被改变> (nValue1, nValue2);
+    #         break;
+    #     case CCIDE_DOCK_EVT_DOCK_ENABLE_CHANGED:
+    #         @<扩展VS允许停靠位置被改变> (nValue1);
+    #         break;
+    #     case CCIDE_DOCK_EVT_CONTROL_STYLE_CHANGED:
+    #         @<扩展VS控制样式被改变> (nValue1, nValue2, nValue3 != 0);
+    #         break;
+    #     case CCIDE_DOCK_EVT_GRIPPER_CHANGED:
+    #         @<扩展VS调节器状态被改变> (nValue1 != 0);
+    #         break;
+    #     }
+    # }
+    # @end
+}

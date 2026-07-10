@@ -1,0 +1,280 @@
+<火山程序 类型 = "通常" 版本 = 1 />
+
+包 火山.程序 <注释 = "当前项目专用赛博朋克无边框启动窗口.需要项目已引用 ui_cartoon_box 动画框类库."
+        @视窗.需求系统头文件 = "afxwin.h | 当前 Visual Studio 本地编译环境未安装 MFC ,需要首先将其安装才能进行编译.">
+
+# @ <global>
+# @ <include>
+# @ #include <windows.h>
+# @ #include <string.h>
+# @
+# @ static void CcIdeWaveU16 (BYTE* p, int off, WORD v)
+# @ {
+# @     p[off] = (BYTE)(v & 0xFF);
+# @     p[off + 1] = (BYTE)((v >> 8) & 0xFF);
+# @ }
+# @
+# @ static void CcIdeWaveU32 (BYTE* p, int off, DWORD v)
+# @ {
+# @     p[off] = (BYTE)(v & 0xFF);
+# @     p[off + 1] = (BYTE)((v >> 8) & 0xFF);
+# @     p[off + 2] = (BYTE)((v >> 16) & 0xFF);
+# @     p[off + 3] = (BYTE)((v >> 24) & 0xFF);
+# @ }
+# @
+# @ static BOOL CcIdeMakeToneWav (CVolMem& mem, int freq, int ms, int amp)
+# @ {
+# @     if (freq < 60) freq = 60;
+# @     if (ms < 40) ms = 40;
+# @     if (amp < 200) amp = 200;
+# @     if (amp > 16000) amp = 16000;
+# @     const int sampleRate = 22050;
+# @     const int samples = sampleRate * ms / 1000;
+# @     const int dataBytes = samples * 2;
+# @     const int totalBytes = 44 + dataBytes;
+# @     BYTE* p = (BYTE*)mem.Alloc (totalBytes, FALSE);
+# @     if (p == NULL)
+# @         return FALSE;
+# @     ZeroMemory (p, totalBytes);
+# @     memcpy (p + 0, "RIFF", 4);
+# @     CcIdeWaveU32 (p, 4, (DWORD)(36 + dataBytes));
+# @     memcpy (p + 8, "WAVEfmt ", 8);
+# @     CcIdeWaveU32 (p, 16, 16);
+# @     CcIdeWaveU16 (p, 20, 1);
+# @     CcIdeWaveU16 (p, 22, 1);
+# @     CcIdeWaveU32 (p, 24, sampleRate);
+# @     CcIdeWaveU32 (p, 28, sampleRate * 2);
+# @     CcIdeWaveU16 (p, 32, 2);
+# @     CcIdeWaveU16 (p, 34, 16);
+# @     memcpy (p + 36, "data", 4);
+# @     CcIdeWaveU32 (p, 40, (DWORD)dataBytes);
+# @     short* out = (short*)(p + 44);
+# @     int period = sampleRate / freq;
+# @     if (period < 2) period = 2;
+# @     for (int i = 0; i < samples; ++i)
+# @     {
+# @         int env = amp;
+# @         if (i < sampleRate / 80)
+# @             env = amp * i / (sampleRate / 80);
+# @         if (samples - i < sampleRate / 45)
+# @             env = amp * (samples - i) / (sampleRate / 45);
+# @         int phase = i % period;
+# @         int v = (phase < period / 2) ? env : -env;
+# @         int sub = ((i * 3) % period < period / 2) ? env / 4 : -env / 4;
+# @         out[i] = (short)(v + sub);
+# @     }
+# @     return TRUE;
+# @ }
+
+类 赛博朋克启动声效 <公开 注释 = "为启动窗口生成短促电子音 WAV 字节集.">
+{
+    方法 生成短音 <公开 静态 类型 = 逻辑型 @禁止流程检查 = 真>
+    参数 输出声音 <类型 = 字节集类>
+    参数 频率 <类型 = 整数>
+    参数 时长 <类型 = 整数>
+    参数 音量 <类型 = 整数>
+    {
+        @ @<输出声音>.Free ();
+        @ return CcIdeMakeToneWav (@<输出声音>, @<频率>, @<时长>, @<音量>);
+    }
+}
+
+类 赛博朋克启动窗口 <公开 基础类 = 窗口 标题 = "CC IDE BOOT" 位置 = 居中
+        @视窗.布局 = "client_size = \"520, 300\"">
+{
+    变量 动画舞台 <类型 = 动画框 @视窗.布局 = "id = 9101\r\npos = \"0, 0, 520, 300\"" 背景颜色 = 0x00160C0A>
+    变量 动画时钟 <类型 = 时钟 @视窗.布局 = "id = 9102" 时钟周期 = 0>
+    变量 关闭时钟 <类型 = 时钟 @视窗.布局 = "id = 9103" 时钟周期 = 0>
+
+    变量 标题物体 <类型 = 整数>
+    变量 副标题物体 <类型 = 整数>
+    变量 状态物体 <类型 = 整数>
+    变量 进度物体 <类型 = 整数>
+    变量 扫描物体 <类型 = 整数>
+    变量 光点一 <类型 = 整数>
+    变量 光点二 <类型 = 整数>
+    变量 光点三 <类型 = 整数>
+    变量 步进值 <类型 = 整数>
+    变量 自动关闭毫秒 <公开 类型 = 整数>
+    变量 启动音 <类型 = 字节集类>
+    变量 脉冲音 <类型 = 字节集类>
+    变量 关闭音 <类型 = 字节集类>
+
+    方法 启动屏完成 <公开 定义事件 类型 = 整数 注释 = "启动屏自动结束并关闭前发送.">
+
+    方法 显示启动屏 <公开 类型 = 逻辑型 注释 = "以较小的无边框主窗口显示启动屏.启动类中必须先创建它,再在启动屏完成事件中创建真正主程序窗口.">
+    {
+        如果 (自动关闭毫秒 <= 0)
+        {
+            自动关闭毫秒 = 2200
+        }
+        返回 (创建主窗口 (数值范围.最小整数值, 数值范围.最小整数值, 520, 300))
+    }
+
+    方法 置无边框样式 <公开 @禁止流程检查 = 真>
+    {
+        @ CWnd* pWnd = GetMfcWndPtrWithValidHWnd ();
+        @ if (pWnd == NULL || pWnd->m_hWnd == NULL)
+        @     return;
+        @ HWND hWnd = pWnd->m_hWnd;
+        @ LONG_PTR style = ::GetWindowLongPtr (hWnd, GWL_STYLE);
+        @ style &= ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
+        @ style |= WS_POPUP;
+        @ ::SetWindowLongPtr (hWnd, GWL_STYLE, style);
+        @ LONG_PTR exStyle = ::GetWindowLongPtr (hWnd, GWL_EXSTYLE);
+        @ exStyle |= WS_EX_TOOLWINDOW;
+        @ ::SetWindowLongPtr (hWnd, GWL_EXSTYLE, exStyle);
+        @ ::SetWindowPos (hWnd, HWND_TOPMOST, 0, 0, 0, 0,
+        @     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+
+    方法 准备声音 <公开>
+    {
+        赛博朋克启动声效.生成短音 (启动音, 880, 150, 9000)
+        赛博朋克启动声效.生成短音 (脉冲音, 1320, 70, 5600)
+        赛博朋克启动声效.生成短音 (关闭音, 520, 120, 7600)
+    }
+
+    方法 创建文字物体 <公开 类型 = 整数>
+    参数 文本 <类型 = 文本型>
+    参数 字体 <类型 = 文本型>
+    参数 颜色 <类型 = 整数>
+    参数 横坐标 <类型 = 整数>
+    参数 纵坐标 <类型 = 整数>
+    参数 层次 <类型 = 整数>
+    参数 生存时间 <类型 = 整数>
+    参数 声音数据 <类型 = 字节集类>
+    {
+        变量 物体 <类型 = 动画物体>
+        物体.初始化 ()
+        物体.文字 = 文本
+        物体.字体 = 字体
+        物体.文本颜色 = 颜色
+        物体.层次 = 层次
+        物体.生存时间 = 生存时间
+        物体.创建声音数据 = 声音数据
+        物体.销毁声音数据 = 关闭音
+        返回 (动画舞台.创建物体 (物体, 横坐标, 纵坐标, 真, 文本))
+    }
+
+    方法 初始化画面 <公开>
+    {
+        准备声音 ()
+        动画舞台.背景颜色 = 0x00160C0A
+        动画舞台.文本背景颜色 = 颜色类.透明色
+        动画舞台.动画框字体 = "Consolas, 10"
+        动画舞台.移动 (0, 0, 520, 300)
+        重绘背景 ()
+
+        标题物体 = 创建文字物体 ("CC IDE", "微软雅黑, 28, 1", 0x00F8BD38, 42, 42, 8, 0, 启动音)
+        副标题物体 = 创建文字物体 ("CYBER COMPILER BOOT", "Consolas, 12, 1", 0x00FF00FF, 46, 92, 7, 0, 脉冲音)
+        状态物体 = 创建文字物体 ("[ INIT ] loading modules", "Consolas, 10", 0x00D7FF00, 46, 178, 7, 0, 脉冲音)
+        进度物体 = 创建文字物体 ("[====----------------]", "Consolas, 12, 1", 0x00F8BD38, 46, 208, 7, 0, 脉冲音)
+        扫描物体 = 创建文字物体 (">>>>>>>>>>>>>>>>>>>>>>>>>>>>>", "Consolas, 9", 0x006CFF00, 0, 132, 5, 0, 脉冲音)
+        光点一 = 创建文字物体 ("<>", "Consolas, 16, 1", 0x00FF00FF, 420, 46, 9, 0, 脉冲音)
+        光点二 = 创建文字物体 ("//", "Consolas, 14, 1", 0x00F8BD38, 386, 232, 9, 0, 脉冲音)
+        光点三 = 创建文字物体 ("[]", "Consolas, 12, 1", 0x006CFF00, 246, 116, 9, 0, 脉冲音)
+
+        动画舞台.自动前进 (扫描物体, 4, 26, 520, 0, 假, 2, 假)
+        动画舞台.自动旋转 (光点一, 9, 26, 0, 0)
+        动画舞台.自动旋转 (光点二, -7, 24, 0, 0)
+        动画舞台.自动旋转 (光点三, 11, 28, 0, 0)
+        步进值 = 0
+        动画时钟.时钟周期 = 90
+        关闭时钟.时钟周期 = 自动关闭毫秒
+    }
+
+    方法 重绘背景 <公开>
+    {
+        动画舞台.刷子颜色 = 0x00160C0A
+        动画舞台.填充矩形 (0, 0, 520, 300)
+        动画舞台.画笔颜色 = 0x00F8BD38
+        动画舞台.画直线 (18, 20, 502, 20)
+        动画舞台.画直线 (18, 280, 502, 280)
+        动画舞台.画直线 (18, 20, 18, 280)
+        动画舞台.画直线 (502, 20, 502, 280)
+        动画舞台.画笔颜色 = 0x00FF00FF
+        动画舞台.画直线 (28, 30, 154, 30)
+        动画舞台.画直线 (366, 270, 492, 270)
+        动画舞台.画笔颜色 = 0x006CFF00
+        动画舞台.画直线 (36, 154, 486, 154)
+        动画舞台.画直线 (36, 158, 486, 158)
+        动画舞台.文本颜色 = 0x00B8A394
+        动画舞台.文本背景颜色 = 颜色类.透明色
+        动画舞台.定位写出 (46, 248, "audio: on    pane: compact    style: punk/cyber")
+    }
+
+    方法 刷新状态 <公开>
+    {
+        步进值 = 步进值 + 1
+        如果 (步进值 == 1)
+        {
+            动画舞台.置文本 (状态物体, "[ INIT ] loading modules", "Consolas, 10", 0x00D7FF00)
+            动画舞台.置文本 (进度物体, "[====----------------]", "Consolas, 12, 1", 0x00F8BD38)
+        }
+        否则 (步进值 == 6)
+        {
+            动画舞台.置文本 (状态物体, "[ SCAN ] docking layout", "Consolas, 10", 0x00F8BD38)
+            动画舞台.置文本 (进度物体, "[========------------]", "Consolas, 12, 1", 0x00F8BD38)
+            动画舞台.置物体位置 (光点三, 308, 116, 假)
+        }
+        否则 (步进值 == 11)
+        {
+            动画舞台.置文本 (状态物体, "[ LINK ] compiler bus", "Consolas, 10", 0x00FF00FF)
+            动画舞台.置文本 (进度物体, "[============--------]", "Consolas, 12, 1", 0x00FF00FF)
+            动画舞台.置物体位置 (光点二, 360, 214, 假)
+        }
+        否则 (步进值 == 16)
+        {
+            动画舞台.置文本 (状态物体, "[ READY ] entering IDE", "Consolas, 10, 1", 0x006CFF00)
+            动画舞台.置文本 (进度物体, "[====================]", "Consolas, 12, 1", 0x006CFF00)
+            动画舞台.置物体位置 (标题物体, 48, 42, 假)
+        }
+        否则 (步进值 > 20)
+        {
+            动画时钟.时钟周期 = 0
+        }
+    }
+
+    方法 关闭启动屏 <公开>
+    {
+        动画时钟.时钟周期 = 0
+        关闭时钟.时钟周期 = 0
+        启动屏完成 ()
+        关闭窗口 ()
+    }
+
+    方法 赛博朋克启动窗口_创建完毕 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = 赛博朋克启动窗口>
+    参数 标记值 <类型 = 整数>
+    {
+        置无边框样式 ()
+        初始化画面 ()
+        返回 (0)
+    }
+
+    方法 赛博朋克启动窗口_尺寸被改变 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = 赛博朋克启动窗口>
+    参数 标记值 <类型 = 整数>
+    {
+        动画舞台.移动 (0, 0, 宽度, 高度)
+        重绘背景 ()
+        返回 (0)
+    }
+
+    方法 时钟_周期事件 <接收事件 类型 = 整数>
+    参数 来源对象 <类型 = 时钟>
+    参数 标记值 <类型 = 整数>
+    {
+        如果 (来源对象 == 动画时钟)
+        {
+            刷新状态 ()
+        }
+        否则 (来源对象 == 关闭时钟)
+        {
+            关闭启动屏 ()
+        }
+        返回 (0)
+    }
+
+}

@@ -1,0 +1,382 @@
+<火山程序 类型 = "通常" 版本 = 1 />
+
+包 火山.程序 <注释 = "当前项目专用的MFC停靠窗口封装.普通窗口可使用停靠窗口管理器做边缘布局."
+        注释 = "VS停靠窗口基于mfc_ui_mdi中的MDI子窗口/CDockablePane,用于可拖拽、浮动、自动隐藏、标签化的MFC停靠窗."
+        @视窗.需求系统头文件 = "afxwin.h | 当前 Visual Studio 本地编译环境未安装 MFC ,需要首先将其安装才能进行编译.">
+
+# @ <global>
+# @ <include>
+# @ #include <vector>
+# @
+# @ class CCcIdeDockLayoutManager
+# @ {
+# @ public:
+# @     struct Pane
+# @     {
+# @         HWND hWnd;
+# @         int dock;
+# @         int size;
+# @         int minSize;
+# @         BOOL visible;
+# @     };
+# @
+# @     CCcIdeDockLayoutManager () : m_hParent (NULL) {}
+# @
+# @     BOOL Init (CWnd* pParent)
+# @     {
+# @         m_hParent = (pParent == NULL ? NULL : pParent->GetSafeHwnd ());
+# @         return ::IsWindow (m_hParent);
+# @     }
+# @
+# @     void Clear ()
+# @     {
+# @         m_panes.clear ();
+# @     }
+# @
+# @     int AddPane (CWnd* pWnd, int dock, int size, int minSize, BOOL visible)
+# @     {
+# @         if (pWnd == NULL || !::IsWindow (pWnd->GetSafeHwnd ()))
+# @             return 0;
+# @         if (dock < 1 || dock > 5)
+# @             return 0;
+# @         Pane pane;
+# @         pane.hWnd = pWnd->GetSafeHwnd ();
+# @         pane.dock = dock;
+# @         pane.size = size;
+# @         pane.minSize = minSize;
+# @         pane.visible = visible;
+# @         m_panes.push_back (pane);
+# @         ::ShowWindow (pane.hWnd, visible ? SW_SHOW : SW_HIDE);
+# @         return (int)m_panes.size ();
+# @     }
+# @
+# @     BOOL SetPaneVisible (int id, BOOL visible)
+# @     {
+# @         Pane* pane = GetPane (id);
+# @         if (pane == NULL)
+# @             return FALSE;
+# @         pane->visible = visible;
+# @         if (::IsWindow (pane->hWnd))
+# @             ::ShowWindow (pane->hWnd, visible ? SW_SHOW : SW_HIDE);
+# @         return TRUE;
+# @     }
+# @
+# @     BOOL SetPaneSize (int id, int size)
+# @     {
+# @         Pane* pane = GetPane (id);
+# @         if (pane == NULL)
+# @             return FALSE;
+# @         pane->size = size;
+# @         return TRUE;
+# @     }
+# @
+# @     int GetPaneCount () const
+# @     {
+# @         return (int)m_panes.size ();
+# @     }
+# @
+# @     BOOL Layout (int left, int top, int width, int height)
+# @     {
+# @         if (!::IsWindow (m_hParent))
+# @             return FALSE;
+# @
+# @         CRect rc;
+# @         if (width <= 0 || height <= 0)
+# @         {
+# @             ::GetClientRect (m_hParent, &rc);
+# @         }
+# @         else
+# @         {
+# @             rc.SetRect (left, top, left + width, top + height);
+# @         }
+# @
+# @         for (size_t i = 0; i < m_panes.size (); ++i)
+# @         {
+# @             Pane& pane = m_panes [i];
+# @             if (!pane.visible || !::IsWindow (pane.hWnd))
+# @                 continue;
+# @
+# @             CRect paneRc (rc);
+# @             const int minSize = (pane.minSize < 0 ? 0 : pane.minSize);
+# @             int size = pane.size;
+# @             if (size < minSize)
+# @                 size = minSize;
+# @
+# @             switch (pane.dock)
+# @             {
+# @             case 1:
+# @                 if (size > rc.Width ()) size = rc.Width ();
+# @                 paneRc.right = paneRc.left + size;
+# @                 rc.left = paneRc.right;
+# @                 break;
+# @             case 2:
+# @                 if (size > rc.Height ()) size = rc.Height ();
+# @                 paneRc.bottom = paneRc.top + size;
+# @                 rc.top = paneRc.bottom;
+# @                 break;
+# @             case 3:
+# @                 if (size > rc.Width ()) size = rc.Width ();
+# @                 paneRc.left = paneRc.right - size;
+# @                 rc.right = paneRc.left;
+# @                 break;
+# @             case 4:
+# @                 if (size > rc.Height ()) size = rc.Height ();
+# @                 paneRc.top = paneRc.bottom - size;
+# @                 rc.bottom = paneRc.top;
+# @                 break;
+# @             default:
+# @                 paneRc = rc;
+# @                 break;
+# @             }
+# @
+# @             if (paneRc.Width () < 0) paneRc.right = paneRc.left;
+# @             if (paneRc.Height () < 0) paneRc.bottom = paneRc.top;
+# @             ::SetWindowPos (pane.hWnd, NULL, paneRc.left, paneRc.top, paneRc.Width (), paneRc.Height (),
+# @                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+# @         }
+# @         return TRUE;
+# @     }
+# @
+# @ private:
+# @     Pane* GetPane (int id)
+# @     {
+# @         if (id <= 0 || id > (int)m_panes.size ())
+# @             return NULL;
+# @         return &m_panes [(size_t)id - 1];
+# @     }
+# @
+# @     HWND m_hParent;
+# @     std::vector<Pane> m_panes;
+# @ };
+# @ </include>
+# @ </global>
+
+类 停靠窗口位置 <公开 注释 = "停靠窗口在父窗口客户区中的停靠位置." @常量类 = 整数>
+{
+    常量 左边 <公开 值 = 1>
+    常量 顶边 <公开 值 = 2>
+    常量 右边 <公开 值 = 3>
+    常量 底边 <公开 值 = 4>
+    常量 充满 <公开 值 = 5>
+}
+
+类 停靠窗口管理器 <公开 注释 = "管理一组已创建的MFC窗口组件,按左/上/右/下/充满顺序自动排列到父窗口客户区内.">
+{
+    # @ @m<DECLARE_REF_OBJECT_CLASS_WITH_DATA> (CCcIdeDockLayoutManager)
+
+    方法 初始化 <公开 类型 = 逻辑型 注释 = "绑定父窗口.通常在主窗口创建完毕后调用一次." @禁止流程检查 = 真>
+    参数 父窗口 <类型 = 窗口组件 注释 = "提供承载停靠布局的父窗口组件,例如IDE主窗口.">
+    {
+        @ return data ().Init (@<父窗口>.GetMfcWndPtrWithValidHWnd ());
+    }
+
+    方法 清空 <公开 注释 = "清空已经加入的停靠窗口记录,不会销毁窗口本身." @嵌入式方法 = "">
+    {
+        @ @sn<this>.data ().Clear ()
+    }
+
+    方法 添加窗口 <公开 类型 = 整数 注释 = "加入一个已经创建的窗口组件到停靠布局中.返回停靠窗口ID,失败返回0." @禁止流程检查 = 真>
+    参数 欲停靠窗口 <类型 = 窗口组件 注释 = "提供已经创建的窗口组件.">
+    参数 停靠位置 <类型 = 停靠窗口位置 注释 = "提供停靠位置.">
+    参数 初始尺寸 <类型 = 整数 注释 = "左/右停靠时表示宽度,上/下停靠时表示高度,充满时忽略." @默认值 = 200>
+    参数 最小尺寸 <类型 = 整数 注释 = "用于防止布局区域过小时尺寸小于该值." @默认值 = 40>
+    参数 是否显示 <类型 = 逻辑型 注释 = "是否立即显示该停靠窗口." @默认值 = 真>
+    {
+        @ return data ().AddPane (@<欲停靠窗口>.GetMfcWndPtrWithValidHWnd (), @<停靠位置>, @<初始尺寸>, @<最小尺寸>, @<是否显示>);
+    }
+
+    方法 设置窗口可视 <公开 类型 = 逻辑型 注释 = "设置指定停靠窗口是否显示.返回是否成功." @禁止流程检查 = 真>
+    参数 停靠窗口ID <类型 = 整数 注释 = "添加窗口方法返回的ID.">
+    参数 是否显示 <类型 = 逻辑型>
+    {
+        @ return data ().SetPaneVisible (@<停靠窗口ID>, @<是否显示>);
+    }
+
+    方法 设置窗口尺寸 <公开 类型 = 逻辑型 注释 = "修改指定停靠窗口的停靠尺寸.返回是否成功." @禁止流程检查 = 真>
+    参数 停靠窗口ID <类型 = 整数 注释 = "添加窗口方法返回的ID.">
+    参数 新尺寸 <类型 = 整数 注释 = "左/右停靠时表示宽度,上/下停靠时表示高度.">
+    {
+        @ return data ().SetPaneSize (@<停靠窗口ID>, @<新尺寸>);
+    }
+
+    方法 更新布局 <公开 类型 = 逻辑型 注释 = "按已加入窗口的顺序更新布局.宽度或高度小于等于0时使用父窗口完整客户区." @禁止流程检查 = 真>
+    参数 左边 <类型 = 整数 注释 = "布局区域左边坐标." @默认值 = 0>
+    参数 顶边 <类型 = 整数 注释 = "布局区域顶边坐标." @默认值 = 0>
+    参数 宽度 <类型 = 整数 注释 = "布局区域宽度.小于等于0时使用父窗口完整客户区." @默认值 = -1>
+    参数 高度 <类型 = 整数 注释 = "布局区域高度.小于等于0时使用父窗口完整客户区." @默认值 = -1>
+    {
+        @ return data ().Layout (@<左边>, @<顶边>, @<宽度>, @<高度>);
+    }
+
+    方法 取窗口数 <公开 类型 = 整数 注释 = "返回当前已加入的停靠窗口数量." @嵌入式方法 = "">
+    {
+        @ @sn<this>.data ().GetPaneCount ()
+    }
+}
+
+# ===
+
+类 VS停靠窗口 <公开 基础类 = MDI子窗口 注释 = "当前项目专用的VS式停靠窗口封装.底层使用mfc_ui_mdi中的CDockablePane,需要父窗口为MDI主窗口.">
+{
+    变量 内部最小宽度 <类型 = 整数>
+    变量 内部最小高度 <类型 = 整数>
+    变量 内部允许停靠位置 <类型 = 整数>
+
+    方法 VS创建完毕 <公开 定义事件 类型 = 整数 注释 = "调用创建VS停靠窗口成功后发送.">
+
+    方法 VS可视状态被改变 <公开 定义事件 类型 = 整数 注释 = "通过停靠可视属性或显示停靠窗口方法改变可视状态后发送.">
+    参数 是否显示 <类型 = 逻辑型>
+
+    方法 VS标题被改变 <公开 定义事件 类型 = 整数 注释 = "通过停靠标题属性修改标题后发送.">
+    参数 新标题 <类型 = 文本型>
+
+    方法 VS被激活 <公开 定义事件 类型 = 整数 注释 = "通过激活停靠窗口方法激活本停靠窗口后发送.">
+
+    方法 VS允许停靠位置被改变 <公开 定义事件 类型 = 整数 注释 = "通过允许停靠位置属性修改可停靠方向后发送.">
+    参数 允许停靠位置 <类型 = 整数>
+
+    方法 VS最小尺寸被改变 <公开 定义事件 类型 = 整数 注释 = "通过最小宽度或最小高度属性修改停靠窗口最小尺寸后发送.">
+    参数 最小宽度 <类型 = 整数>
+    参数 最小高度 <类型 = 整数>
+
+    方法 VS将被销毁 <公开 定义事件 类型 = 整数 注释 = "调用销毁停靠窗口并且底层窗口存在时,销毁前发送.">
+
+    方法 创建VS停靠窗口 <公开 类型 = 逻辑型 注释 = "创建可拖拽停靠/浮动/自动隐藏的MFC停靠窗口.父窗口必须是MDI主窗口.">
+    参数 标题 <类型 = 文本型 注释 = "停靠窗口标题">
+    参数 父窗口 <类型 = MDI主窗口 注释 = "承载停靠窗口的MDI主窗口">
+    参数 ID值 <类型 = 整数 注释 = "停靠窗口ID,同一父窗口内必须唯一">
+    参数 停靠位置 <类型 = 组件停靠位置 注释 = "初始停靠位置">
+    参数 允许停靠位置 <类型 = 整数 注释 = "允许拖拽停靠的位置,可使用组件允许停靠位置中的常量组合." @默认值 = 组件允许停靠位置.任意边>
+    参数 初始宽度 <类型 = 整数 注释 = "初始宽度" @默认值 = 260>
+    参数 初始高度 <类型 = 整数 注释 = "初始高度" @默认值 = 260>
+    参数 是否有调节器 <类型 = 逻辑型 注释 = "是否显示可拖拽调节器" @默认值 = 真>
+    {
+        变量 创建结果 <类型 = 逻辑型>
+        创建结果 = 创建 (标题, 父窗口, ID值, 停靠位置, 允许停靠位置, 空资源.空图标, 是否有调节器, 0, 0, 初始宽度, 初始高度)
+        如果 (创建结果)
+        {
+            内部允许停靠位置 = 允许停靠位置
+            VS创建完毕 ()
+        }
+        返回 (创建结果)
+    }
+
+    方法 停靠标题 <公开 属性读 类型 = 文本型 注释 = "返回停靠窗口标题." @禁止流程检查 = 真>
+    {
+        @ CString strText;
+        @ if (data ().GetSafeHwnd () != NULL)
+        @     data ().GetWindowText (strText);
+        @ return CVolString ((LPCTSTR)strText);
+    }
+
+    方法 停靠标题 <公开 属性写 注释 = "修改停靠窗口标题.">
+    参数 新标题 <类型 = 文本型>
+    {
+        @ if (data ().GetSafeHwnd () != NULL)
+        @     data ().SetWindowText (@<新标题>.GetText ());
+        VS标题被改变 (新标题)
+    }
+
+    方法 停靠可视 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口当前是否可视.">
+    {
+        返回 (是否可视)
+    }
+
+    方法 停靠可视 <公开 属性写 注释 = "显示或隐藏停靠窗口.">
+    参数 是否显示 <类型 = 逻辑型>
+    {
+        是否可视 = 是否显示
+        VS可视状态被改变 (是否显示)
+    }
+
+    方法 允许停靠位置 <公开 属性读 类型 = 整数 注释 = "返回最近设置的允许停靠位置.">
+    {
+        返回 (内部允许停靠位置)
+    }
+
+    方法 允许停靠位置 <公开 属性写 注释 = "设置允许拖拽停靠的位置,可使用组件允许停靠位置中的常量组合.">
+    参数 新允许停靠位置 <类型 = 整数>
+    {
+        内部允许停靠位置 = 新允许停靠位置
+        @ if (data ().GetSafeHwnd () != NULL)
+        @     data ().EnableDocking (@<新允许停靠位置>);
+        VS允许停靠位置被改变 (新允许停靠位置)
+    }
+
+    方法 最小宽度 <公开 属性读 类型 = 整数 注释 = "返回最近设置的最小宽度.">
+    {
+        返回 (内部最小宽度)
+    }
+
+    方法 最小宽度 <公开 属性写 注释 = "设置停靠窗口最小宽度.">
+    参数 新最小宽度 <类型 = 整数>
+    {
+        内部最小宽度 = 新最小宽度
+        应用最小尺寸 ()
+        VS最小尺寸被改变 (内部最小宽度, 内部最小高度)
+    }
+
+    方法 最小高度 <公开 属性读 类型 = 整数 注释 = "返回最近设置的最小高度.">
+    {
+        返回 (内部最小高度)
+    }
+
+    方法 最小高度 <公开 属性写 注释 = "设置停靠窗口最小高度.">
+    参数 新最小高度 <类型 = 整数>
+    {
+        内部最小高度 = 新最小高度
+        应用最小尺寸 ()
+        VS最小尺寸被改变 (内部最小宽度, 内部最小高度)
+    }
+
+    方法 是否已创建 <公开 属性读 类型 = 逻辑型 注释 = "返回底层停靠窗句柄是否已经创建." @嵌入式方法 = "">
+    {
+        @ (BOOL)(@sn<this>.data ().GetSafeHwnd () != NULL)
+    }
+
+    方法 是否浮动 <公开 属性读 类型 = 逻辑型 注释 = "返回停靠窗口当前是否处于浮动状态." @嵌入式方法 = "">
+    {
+        @ (BOOL)@sn<this>.data ().IsFloating ()
+    }
+
+    方法 停靠窗口句柄 <公开 属性读 类型 = 变整数 注释 = "返回CDockablePane窗口句柄(HWND)." @嵌入式方法 = "">
+    {
+        @ (INT_P)@sn<this>.data ().GetSafeHwnd ()
+    }
+
+    方法 内容窗口句柄 <公开 属性读 类型 = 变整数 注释 = "返回停靠窗内部承载的火山控件窗口句柄(HWND)." @嵌入式方法 = "">
+    {
+        @ (INT_P)@sn<this>.data ().GetUserWnd ()
+    }
+
+    方法 显示停靠窗口 <公开 注释 = "显示或隐藏停靠窗口.">
+    参数 是否显示 <类型 = 逻辑型>
+    {
+        停靠可视 = 是否显示
+    }
+
+    方法 取停靠窗口可视 <公开 类型 = 逻辑型 注释 = "返回停靠窗口当前是否可视.">
+    {
+        返回 (停靠可视)
+    }
+
+    方法 激活停靠窗口 <公开 注释 = "显示并激活停靠窗口.">
+    {
+        激活子窗口 ()
+        VS被激活 ()
+    }
+
+    方法 销毁停靠窗口 <公开 类型 = 逻辑型 注释 = "销毁底层CDockablePane窗口.成功发起销毁返回真,窗口不存在返回假." @禁止流程检查 = 真>
+    {
+        @ if (data ().GetSafeHwnd () == NULL)
+        @     return FALSE;
+        VS将被销毁 ()
+        @ return data ().DestroyWindow ();
+    }
+
+    方法 应用最小尺寸 <私有 注释 = "将最小宽高应用到底层MFC pane.">
+    {
+        @ if (data ().GetSafeHwnd () != NULL)
+        @     data ().SetMinSize (CSize (@<内部最小宽度>, @<内部最小高度>));
+    }
+}
