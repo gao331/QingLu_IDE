@@ -21,6 +21,15 @@
     变量 成员_核心模块文本 <公开 类型 = 文本型>
     变量 成员_用户模块文本 <公开 类型 = 文本型>
     变量 成员_接口映射文本 <公开 类型 = 文本型>
+    变量 成员_C加加语言标准 <公开 类型 = 文本型>
+    变量 成员_C语言标准 <公开 类型 = 文本型>
+    变量 成员_字符集 <公开 类型 = 文本型>
+    变量 成员_MFC使用 <公开 类型 = 文本型>
+    变量 成员_警告等级 <公开 类型 = 文本型>
+    变量 成员_将警告视为错误 <公开 类型 = 逻辑型>
+    变量 成员_运行库 <公开 类型 = 文本型>
+    变量 成员_生成调试信息 <公开 类型 = 文本型>
+    变量 成员_子系统 <公开 类型 = 文本型>
 
     方法 初始化 <公开>
     {
@@ -209,6 +218,7 @@
         成员_包含目录.删除所有成员 ()
         成员_库目录.删除所有成员 ()
         成员_链接库.删除所有成员 ()
+        成员_预定义.删除所有成员 ()
         成员_接口映射文本 = ""
 
         输出回调.输出文本 ("=== 构建项目: " + 项目名称 + " ===")
@@ -234,9 +244,23 @@
         内部_创建目录树 (构建目录)
         输出回调.输出文本 ("输出目录: " + 构建目录)
 
-        如果 (成员_项目类型 == "console")
+        加载项目属性 (项目目录, 输出回调)
+
+        如果 (成员_项目类型 == "console" && 成员_输出类型 == "exe")
         {
             准备控制台核心模块 (项目目录, 输出回调)
+        }
+        否则 (成员_项目类型 == "window" && 成员_输出类型 == "exe")
+        {
+            准备窗口核心模块 (项目目录, 输出回调)
+            如果 (文本类.寻找文本 (成员_核心模块文本, "sys.core_window", 0, 真) < 0)
+            {
+                如果 (成员_核心模块文本 != "")
+                {
+                    成员_核心模块文本 = 成员_核心模块文本 + "|"
+                }
+                成员_核心模块文本 = 成员_核心模块文本 + "sys.core_window"
+            }
         }
         加载项目模块 (项目目录, 输出回调, 源文件列表)
 
@@ -284,6 +308,7 @@
                 {
                     变量 C加加代码 <类型 = 文本型>
                     C加加代码 = 编译器.中文转C加加 (源码内容)
+                    C加加代码 = 生成源文件行映射指令 (源路径, 1) + C加加代码
                     变量 基名 <类型 = 文本型>
                     基名 = 磁盘操作类.取文件名无路径部分 (源路径)
                     变量 点位置 <类型 = 整数>
@@ -307,7 +332,7 @@
         如果 (表格源码合集 != "")
         {
             变量 表格C加加代码 <类型 = 文本型>
-            表格C加加代码 = 转换火山表格代码为C加加 (表格源码合集, 项目名称, 成员_接口映射文本)
+            表格C加加代码 = 转换火山表格代码为C加加 (表格源码合集, 项目名称, 成员_接口映射文本, 成员_项目类型 == "console" && 成员_输出类型 == "exe", 成员_项目类型 == "window" && 成员_输出类型 == "exe")
             如果 (表格C加加代码 == "")
             {
                 输出回调.输出文本 ("错误: 表格代码生成C++失败")
@@ -319,6 +344,17 @@
             C加加文件组.加入成员 (表格输出文件)
             输出回调.输出文本 ("表格代码 -> " + 项目名称 + "_table.cpp")
             输出回调.输出文本 ("表格代码已生成对应C++源文件。")
+        }
+
+        如果 (成员_项目类型 == "window" && 成员_输出类型 == "exe")
+        {
+            变量 窗口运行时文件 <类型 = 文本型>
+            窗口运行时文件 = 生成窗口项目运行时代码 (项目目录, 构建目录, 项目名称, 输出回调)
+            如果 (窗口运行时文件 == "")
+            {
+                返回 (假)
+            }
+            C加加文件组.加入成员 (窗口运行时文件)
         }
 
         如果 (错误数 > 0)
@@ -416,7 +452,7 @@
             返回 (假)
         }
 
-        成员_最后输出路径 = 构建目录 + "\\" + 项目名称 + ".exe"
+        成员_最后输出路径 = 取输出文件路径 (构建目录, 项目名称)
         成员_构建耗时 = 常用功能类.取启动时间 () - 开始时间
         输出回调.输出文本 ("")
         输出回调.输出文本 ("构建成功: " + 成员_最后输出路径)
@@ -531,6 +567,201 @@
         返回 (控制台模块目录)
     }
 
+    方法 准备窗口核心模块 <类型 = 文本型>
+    参数 项目目录 <类型 = 文本型>
+    参数 输出回调 <类型 = 构建输出回调类>
+    {
+        变量 清理项目目录 <类型 = 文本型>
+        变量 模块根目录 <类型 = 文本型>
+        变量 系统模块目录 <类型 = 文本型>
+        变量 窗口模块目录 <类型 = 文本型>
+        变量 模块信息 <类型 = 文本型>
+        变量 接口信息 <类型 = 文本型>
+        变量 运行时后端 <类型 = 文本型>
+        清理项目目录 = 去除末尾反斜杠 (项目目录)
+        模块根目录 = 清理项目目录 + "\\modules"
+        系统模块目录 = 模块根目录 + "\\sys"
+        窗口模块目录 = 系统模块目录 + "\\core_window"
+        内部_创建目录树 (模块根目录)
+        内部_创建目录树 (系统模块目录)
+        内部_创建目录树 (窗口模块目录)
+        运行时后端 = 选择 (文本类.寻找文本 (成员_MFC使用, "MFC", 0, 真) >= 0, "MFC", "Win32")
+
+        模块信息 = "{\n"
+        模块信息 = 模块信息 + "  \"模块名称\": \"核心窗口运行时\",\n"
+        模块信息 = 模块信息 + "  \"模块标识\": \"sys.core_window\",\n"
+        模块信息 = 模块信息 + "  \"模块类型\": \"核心模块\",\n"
+        模块信息 = 模块信息 + "  \"目标平台\": \"Windows\",\n"
+        模块信息 = 模块信息 + "  \"入口模式\": \"WinMain\",\n"
+        模块信息 = 模块信息 + "  \"运行时后端\": \"" + 运行时后端 + "\",\n"
+        模块信息 = 模块信息 + "  \"链接库\": [\"user32.lib\", \"gdi32.lib\", \"comctl32.lib\"],\n"
+        模块信息 = 模块信息 + "  \"预处理器定义\": [\"UNICODE\", \"_UNICODE\"],\n"
+        模块信息 = 模块信息 + "  \"说明\": \"根据窗口设计文件生成 Win32 窗口、控件、事件分发和 WinMain 入口。\"\n"
+        模块信息 = 模块信息 + "}\n"
+
+        接口信息 = "{\n"
+        接口信息 = 接口信息 + "  \"接口列表\": []\n"
+        接口信息 = 接口信息 + "}\n"
+        内部_写出文本文件 (窗口模块目录 + "\\模块.json", 模块信息)
+        内部_写出文本文件 (窗口模块目录 + "\\接口.json", 接口信息)
+        输出回调.输出文本 ("核心模块: sys.core_window (.wui -> " + 运行时后端 + ")")
+        返回 (窗口模块目录)
+    }
+
+    方法 排序窗口设计文件组 <类型 = 文本数组类>
+    参数 文件组 <类型 = 文本数组类>
+    {
+        变量 结果组 <类型 = 文本数组类>
+        变量 索引 <类型 = 整数>
+        变量 插入位置 <类型 = 整数>
+        变量 当前文件 <类型 = 文本型>
+        索引 = 0
+        判断循环 (索引 < 文件组.取成员数 ())
+        {
+            当前文件 = 文件组.取成员 (索引)
+            插入位置 = 0
+            判断循环 (插入位置 < 结果组.取成员数 () && 文本比较 (结果组.取成员 (插入位置), 当前文件, 真) <= 0)
+            {
+                插入位置 = 插入位置 + 1
+            }
+            结果组.插入成员 (插入位置, 当前文件)
+            索引 = 索引 + 1
+        }
+        返回 (结果组)
+    }
+
+    方法 收集窗口设计文件 <类型 = 文本数组类>
+    参数 项目目录 <类型 = 文本型>
+    {
+        变量 文件组 <类型 = 文本数组类>
+        变量 查找器 <类型 = 文件查找类>
+        变量 设计目录 <类型 = 文本型>
+        变量 文件名 <类型 = 文本型>
+        设计目录 = 去除末尾反斜杠 (项目目录) + "\\窗口"
+        如果 (磁盘操作类.取文件属性 (设计目录) == -1)
+        {
+            返回 (文件组)
+        }
+        文件名 = 查找器.寻找文件 (设计目录 + "\\*.wui", -1)
+        判断循环 (文件名 != "")
+        {
+            文件组.加入成员 (设计目录 + "\\" + 文件名)
+            文件名 = 查找器.寻找文件 ("", -1)
+        }
+        查找器.停止寻找文件 ()
+        返回 (排序窗口设计文件组 (文件组))
+    }
+
+    方法 生成窗口项目运行时代码 <类型 = 文本型>
+    参数 项目目录 <类型 = 文本型>
+    参数 构建目录 <类型 = 文本型>
+    参数 项目名称 <类型 = 文本型>
+    参数 输出回调 <类型 = 构建输出回调类>
+    {
+        变量 设计文件组 <类型 = 文本数组类>
+        变量 设计文档 <类型 = 窗口设计文档>
+        变量 设计文本 <类型 = 文本型>
+        变量 运行时代码 <类型 = 文本型>
+        变量 输出文件 <类型 = 文本型>
+        变量 索引 <类型 = 整数>
+        变量 启动窗口索引 <类型 = 整数>
+        变量 启动窗口数量 <类型 = 整数>
+        变量 使用MFC后端 <类型 = 逻辑型>
+        如果 (文本类.寻找文本 (成员_子系统, "WINDOWS", 0, 真) < 0)
+        {
+            输出回调.输出文本 ("错误: 窗口项目运行时要求链接器子系统为 窗口 (/SUBSYSTEM:WINDOWS)。")
+            返回 ("")
+        }
+        使用MFC后端 = 文本类.寻找文本 (成员_MFC使用, "MFC", 0, 真) >= 0
+        如果 (使用MFC后端 && 成员_编译器类型 != "msvc")
+        {
+            输出回调.输出文本 ("错误: MFC 窗口运行时仅支持 MSVC，请切换编译器或把“MFC的使用”改为“使用标准Windows库”。")
+            返回 ("")
+        }
+        设计文件组 = 收集窗口设计文件 (项目目录)
+        如果 (设计文件组.取成员数 () == 0)
+        {
+            输出回调.输出文本 ("错误: 窗口项目没有可用的 .wui 设计文件，请先在“窗口”节点中新建窗口。")
+            返回 ("")
+        }
+
+        启动窗口索引 = -1
+        启动窗口数量 = 0
+        索引 = 0
+        判断循环 (索引 < 设计文件组.取成员数 ())
+        {
+            设计文本 = 内部_读入文本文件 (设计文件组.取成员 (索引))
+            如果 (设计文档.载入设计文本 (设计文本) == 假)
+            {
+                输出回调.输出文本 ("错误: 无法解析窗口设计文件 " + 设计文件组.取成员 (索引))
+                返回 ("")
+            }
+            如果 (设计文档.是否启动窗口)
+            {
+                启动窗口数量 = 启动窗口数量 + 1
+                如果 (启动窗口索引 < 0)
+                {
+                    启动窗口索引 = 索引
+                }
+            }
+            索引 = 索引 + 1
+        }
+        如果 (启动窗口索引 < 0)
+        {
+            启动窗口索引 = 0
+            输出回调.输出文本 ("警告: 没有窗口被标记为启动窗口，将使用 " + 设计文件组.取成员 (0))
+        }
+        否则 (启动窗口数量 > 1)
+        {
+            输出回调.输出文本 ("警告: 检测到多个启动窗口，将使用排序后的第一个: " + 设计文件组.取成员 (启动窗口索引))
+        }
+
+        如果 (使用MFC后端)
+        {
+            运行时代码 = 窗口设计文档.生成MFC运行时头 ()
+        }
+        否则
+        {
+            运行时代码 = 窗口设计文档.生成Win32运行时头 ()
+        }
+        索引 = 0
+        判断循环 (索引 < 设计文件组.取成员数 ())
+        {
+            设计文本 = 内部_读入文本文件 (设计文件组.取成员 (索引))
+            如果 (设计文档.载入设计文本 (设计文本) == 假)
+            {
+                输出回调.输出文本 ("错误: 窗口设计文件在生成阶段读取失败 " + 设计文件组.取成员 (索引))
+                返回 ("")
+            }
+            如果 (使用MFC后端)
+            {
+                运行时代码 = 运行时代码 + 设计文档.生成MFC窗口代码 (索引)
+            }
+            否则
+            {
+                运行时代码 = 运行时代码 + 设计文档.生成Win32窗口代码 (索引, 索引 == 启动窗口索引)
+            }
+            输出回调.输出文本 ("窗口设计: " + 设计文件组.取成员 (索引) + " -> " + 选择 (使用MFC后端, "MFC", "Win32"))
+            索引 = 索引 + 1
+        }
+        如果 (使用MFC后端)
+        {
+            运行时代码 = 运行时代码 + 窗口设计文档.生成MFC入口代码 (启动窗口索引)
+        }
+        否则
+        {
+            运行时代码 = 运行时代码 + 窗口设计文档.生成Win32入口代码 (启动窗口索引)
+        }
+        输出文件 = 去除末尾反斜杠 (构建目录) + "\\" + 项目名称 + "_window_runtime.cpp"
+        如果 (内部_写出文本文件 (输出文件, 运行时代码) == 假)
+        {
+            输出回调.输出文本 ("错误: 无法写出窗口运行时代码 " + 输出文件)
+            返回 ("")
+        }
+        输出回调.输出文本 ("窗口运行时 -> " + 项目名称 + "_window_runtime.cpp")
+        返回 (输出文件)
+    }
+
     方法 拆分列表文本 <公开 类型 = 文本数组类>
     参数 原文本 <类型 = 文本型>
     {
@@ -595,6 +826,20 @@
         返回 (结果文本)
     }
 
+    方法 生成源文件行映射指令 <类型 = 文本型>
+    参数 源文件路径 <类型 = 文本型>
+    参数 源文件行号 <类型 = 整数>
+    {
+        变量 安全路径 <类型 = 文本型>
+        如果 (源文件路径 == "" || 源文件行号 <= 0)
+        {
+            返回 ("")
+        }
+        安全路径 = 替换全部文本 (源文件路径, "\\", "/")
+        安全路径 = 替换全部文本 (安全路径, "\"", "")
+        返回 ("#line " + 到文本 (源文件行号) + " \"" + 安全路径 + "\"\n")
+    }
+
     方法 附加唯一文本 <公开>
     参数 目标数组 <类型 = 文本数组类>
     参数 文本值 <类型 = 文本型>
@@ -623,7 +868,130 @@
         目标数组.加入成员 (标准值)
     }
 
-    方法 取JSON字符串值 <类型 = 文本型>
+    方法 附加项目路径列表 <公开>
+    参数 项目目录 <类型 = 文本型>
+    参数 列表文本 <类型 = 文本型>
+    参数 目标数组 <类型 = 文本数组类>
+    {
+        变量 临时组 <类型 = 文本数组类>
+        变量 索引 <类型 = 整数>
+        临时组 = 拆分列表文本 (列表文本)
+        索引 = 0
+        判断循环 (索引 < 临时组.取成员数 ())
+        {
+            附加唯一文本 (目标数组, 标准化模块路径 (项目目录, 临时组.取成员 (索引)))
+            索引 = 索引 + 1
+        }
+    }
+
+    方法 附加项目链接库列表 <公开>
+    参数 列表文本 <类型 = 文本型>
+    {
+        变量 临时组 <类型 = 文本数组类>
+        变量 索引 <类型 = 整数>
+        临时组 = 拆分列表文本 (列表文本)
+        索引 = 0
+        判断循环 (索引 < 临时组.取成员数 ())
+        {
+            附加唯一文本 (成员_链接库, 标准化链接库名称 (临时组.取成员 (索引)))
+            索引 = 索引 + 1
+        }
+    }
+
+    方法 附加项目预定义列表 <公开>
+    参数 列表文本 <类型 = 文本型>
+    {
+        变量 临时组 <类型 = 文本数组类>
+        变量 索引 <类型 = 整数>
+        临时组 = 拆分列表文本 (列表文本)
+        索引 = 0
+        判断循环 (索引 < 临时组.取成员数 ())
+        {
+            附加唯一文本 (成员_预定义, 临时组.取成员 (索引))
+            索引 = 索引 + 1
+        }
+    }
+
+    方法 加载项目属性 <公开>
+    参数 项目目录 <类型 = 文本型>
+    参数 输出回调 <类型 = 构建输出回调类>
+    {
+        变量 属性路径 <类型 = 文本型>
+        变量 默认配置类型 <类型 = 文本型>
+        变量 默认子系统 <类型 = 文本型>
+        属性路径 = 去除末尾反斜杠 (项目目录) + "\\项目属性.ini"
+        默认配置类型 = "应用程序(.exe)"
+        默认子系统 = "控制台 (/SUBSYSTEM:CONSOLE)"
+        如果 (成员_项目类型 == "window")
+        {
+            默认子系统 = "窗口 (/SUBSYSTEM:WINDOWS)"
+        }
+        否则 (成员_项目类型 == "dll")
+        {
+            默认配置类型 = "动态库(.dll)"
+            默认子系统 = "窗口 (/SUBSYSTEM:WINDOWS)"
+        }
+        否则 (成员_项目类型 == "lib")
+        {
+            默认配置类型 = "静态库(.lib)"
+            默认子系统 = ""
+        }
+        成员_C加加语言标准 = 常用功能类.读配置项 (属性路径, "常规", "C++语言标准", "默认(ISO C++14标准)")
+        成员_C语言标准 = 常用功能类.读配置项 (属性路径, "常规", "C语言标准", "默认(旧MSVC)")
+        变量 配置类型 <类型 = 文本型>
+        配置类型 = 常用功能类.读配置项 (属性路径, "常规", "配置类型", 默认配置类型)
+        成员_字符集 = 常用功能类.读配置项 (属性路径, "常规", "字符集", "使用 Unicode 字符集")
+        成员_MFC使用 = 常用功能类.读配置项 (属性路径, "常规", "MFC使用", "使用标准Windows库")
+        成员_警告等级 = 常用功能类.读配置项 (属性路径, "C++", "警告等级", "默认")
+        成员_将警告视为错误 = 常用功能类.读配置项 (属性路径, "C++", "将警告视为错误", "假") == "真"
+        成员_运行库 = 常用功能类.读配置项 (属性路径, "代码生成", "运行库", "多线程调试 DLL (/MDd)")
+        成员_生成调试信息 = 常用功能类.读配置项 (属性路径, "链接器", "生成调试信息", "生成调试信息 (/DEBUG)")
+        成员_子系统 = 常用功能类.读配置项 (属性路径, "链接器", "子系统", 默认子系统)
+        如果 (文本类.寻找文本 (配置类型, "动态库", 0, 真) >= 0)
+        {
+            成员_输出类型 = "dll"
+        }
+        否则 (文本类.寻找文本 (配置类型, "静态库", 0, 真) >= 0)
+        {
+            成员_输出类型 = "lib"
+        }
+        否则
+        {
+            成员_输出类型 = "exe"
+        }
+        如果 (成员_输出类型 != "exe" && (成员_核心模块文本 == "sys.core_console" || 成员_核心模块文本 == "sys.core_window"))
+        {
+            成员_核心模块文本 = ""
+        }
+        附加项目路径列表 (项目目录, 常用功能类.读配置项 (属性路径, "C++", "附加包含目录", ""), 成员_包含目录)
+        附加项目路径列表 (项目目录, 常用功能类.读配置项 (属性路径, "链接器", "附加库目录", ""), 成员_库目录)
+        附加项目链接库列表 (常用功能类.读配置项 (属性路径, "链接器", "附加依赖项", ""))
+        附加项目预定义列表 (常用功能类.读配置项 (属性路径, "预处理器", "预处理器定义", ""))
+        如果 (文本类.寻找文本 (成员_字符集, "Unicode", 0, 真) >= 0)
+        {
+            附加唯一文本 (成员_预定义, "UNICODE")
+            附加唯一文本 (成员_预定义, "_UNICODE")
+        }
+        否则
+        {
+            附加唯一文本 (成员_预定义, "_MBCS")
+        }
+        如果 (文本类.寻找文本 (成员_MFC使用, "共享DLL", 0, 真) >= 0)
+        {
+            附加唯一文本 (成员_预定义, "_AFXDLL")
+        }
+        如果 (文本类.寻找文本 (成员_子系统, "WINDOWS", 0, 真) >= 0)
+        {
+            附加唯一文本 (成员_预定义, "_WINDOWS")
+        }
+        否则 (文本类.寻找文本 (成员_子系统, "CONSOLE", 0, 真) >= 0)
+        {
+            附加唯一文本 (成员_预定义, "_CONSOLE")
+        }
+        输出回调.输出文本 ("项目属性: " + 成员_C加加语言标准 + " | " + 配置类型 + " | " + 成员_子系统)
+    }
+
+    方法 取JSON字符串值 <公开 类型 = 文本型>
     参数 JSON文本 <类型 = 文本型>
     参数 键名称 <类型 = 文本型>
     {
@@ -672,7 +1040,7 @@
         返回 ("")
     }
 
-    方法 取JSON字符串数组 <类型 = 文本数组类>
+    方法 取JSON字符串数组 <公开 类型 = 文本数组类>
     参数 JSON文本 <类型 = 文本型>
     参数 键名称 <类型 = 文本型>
     {
@@ -750,6 +1118,10 @@
         结果文本 = 取裁剪文本 (原名称)
         如果 (成员_编译器类型 == "gcc")
         {
+            如果 (文本类.寻找文本 (结果文本, ":\\", 0, 真) >= 0 || 文本类.寻找文本 (结果文本, "\\", 0, 真) >= 0 || 文本类.寻找文本 (结果文本, "/", 0, 真) >= 0)
+            {
+                返回 (结果文本)
+            }
             如果 (文本类.取文本右边 (到小写 (结果文本), 4) == ".lib")
             {
                 结果文本 = 文本类.取文本左边 (结果文本, 文本类.取文本长度 (结果文本) - 4)
@@ -770,18 +1142,64 @@
     参数 项目目录 <类型 = 文本型>
     参数 模块标识 <类型 = 文本型>
     {
+        变量 项目模块根目录 <类型 = 文本型>
+        变量 全局模块根目录 <类型 = 文本型>
+        变量 候选目录 <类型 = 文本型>
+        变量 旧式候选目录 <类型 = 文本型>
+        项目模块根目录 = 去除末尾反斜杠 (项目目录) + "\\modules"
+        全局模块根目录 = 去除末尾反斜杠 (环境存取类.取运行目录 ()) + "\\modules"
         变量 点位置 <类型 = 整数>
         点位置 = 文本类.寻找文本 (模块标识, ".", 0, 真)
         如果 (点位置 < 0)
         {
-            返回 ("")
+            候选目录 = 项目模块根目录 + "\\" + 模块标识
+            如果 (内部_文件是否存在 (候选目录 + "\\模块.json"))
+            {
+                返回 (候选目录)
+            }
+            候选目录 = 项目模块根目录 + "\\user\\" + 模块标识
+            如果 (内部_文件是否存在 (候选目录 + "\\模块.json"))
+            {
+                返回 (候选目录)
+            }
+            候选目录 = 全局模块根目录 + "\\" + 模块标识
+            如果 (内部_文件是否存在 (候选目录 + "\\模块.json"))
+            {
+                返回 (候选目录)
+            }
+            候选目录 = 全局模块根目录 + "\\user\\" + 模块标识
+            如果 (内部_文件是否存在 (候选目录 + "\\模块.json"))
+            {
+                返回 (候选目录)
+            }
+            返回 (项目模块根目录 + "\\" + 模块标识)
         }
         变量 根目录 <类型 = 文本型>
         变量 相对目录 <类型 = 文本型>
         根目录 = 文本类.取文本左边 (模块标识, 点位置)
         相对目录 = 文本类.取文本右边 (模块标识, 文本类.取文本长度 (模块标识) - 点位置 - 1)
         相对目录 = 替换全部文本 (相对目录, ".", "\\")
-        返回 (去除末尾反斜杠 (项目目录) + "\\modules\\" + 根目录 + "\\" + 相对目录)
+        候选目录 = 项目模块根目录 + "\\" + 根目录 + "\\" + 相对目录
+        如果 (内部_文件是否存在 (候选目录 + "\\模块.json"))
+        {
+            返回 (候选目录)
+        }
+        旧式候选目录 = 项目模块根目录 + "\\" + 相对目录
+        如果 (内部_文件是否存在 (旧式候选目录 + "\\模块.json"))
+        {
+            返回 (旧式候选目录)
+        }
+        候选目录 = 全局模块根目录 + "\\" + 根目录 + "\\" + 相对目录
+        如果 (内部_文件是否存在 (候选目录 + "\\模块.json"))
+        {
+            返回 (候选目录)
+        }
+        旧式候选目录 = 全局模块根目录 + "\\" + 相对目录
+        如果 (内部_文件是否存在 (旧式候选目录 + "\\模块.json"))
+        {
+            返回 (旧式候选目录)
+        }
+        返回 (项目模块根目录 + "\\" + 根目录 + "\\" + 相对目录)
     }
 
     方法 提取接口映射文本 <类型 = 文本型>
@@ -898,7 +1316,16 @@
                 变量 库目录组 <类型 = 文本数组类>
                 变量 链接库组 <类型 = 文本数组类>
                 变量 源码文件组 <类型 = 文本数组类>
+                变量 预定义组 <类型 = 文本数组类>
+                变量 依赖模块组 <类型 = 文本数组类>
                 变量 子索引 <类型 = 整数>
+                依赖模块组 = 取JSON字符串数组 (模块JSON文本, "依赖模块")
+                子索引 = 0
+                判断循环 (子索引 < 依赖模块组.取成员数 ())
+                {
+                    附加唯一文本 (模块列表, 依赖模块组.取成员 (子索引))
+                    子索引 = 子索引 + 1
+                }
                 包含目录组 = 取JSON字符串数组 (模块JSON文本, "包含目录")
                 子索引 = 0
                 循环判断首 ()
@@ -947,6 +1374,13 @@
                     子索引 = 子索引 + 1
                 }
                 循环判断尾 (子索引 < 源码文件组.取成员数 ())
+                预定义组 = 取JSON字符串数组 (模块JSON文本, "预处理器定义")
+                子索引 = 0
+                判断循环 (子索引 < 预定义组.取成员数 ())
+                {
+                    附加唯一文本 (成员_预定义, 预定义组.取成员 (子索引))
+                    子索引 = 子索引 + 1
+                }
                 如果 (内部_文件是否存在 (接口JSON路径))
                 {
                     成员_接口映射文本 = 成员_接口映射文本 + 提取接口映射文本 (内部_读入文本文件 (接口JSON路径))
@@ -962,6 +1396,8 @@
     参数 源码 <类型 = 文本型>
     参数 项目名称 <类型 = 文本型>
     参数 接口映射文本 <类型 = 文本型>
+    参数 是否生成控制台入口 <类型 = 逻辑型>
+    参数 是否生成窗口事件适配器 <类型 = 逻辑型>
     {
         @ struct SMethodInfo
         @ {
@@ -978,6 +1414,8 @@
         @     CString localOrigList;
         @     CString localCppList;
         @     CString body;
+        @     CString sourceFile;
+        @     INT sourceLine;
         @     BOOL isStatic;
         @     INT localCount;
         @ };
@@ -1013,6 +1451,50 @@
         @         CString t = s;
         @         t.Trim ();
         @         return t.IsEmpty ();
+        @     }
+        @     static CString MakeLineDirective (CString fileName, INT lineNumber)
+        @     {
+        @         fileName.Trim ();
+        @         fileName.Replace (_T ("\\"), _T ("/"));
+        @         fileName.Replace (_T ("\""), _T (""));
+        @         if (fileName.IsEmpty () || lineNumber <= 0)
+        @             return _T ("");
+        @         CString result;
+        @         result.Format (_T ("#line %d \"%s\"\n"), lineNumber, (LPCTSTR)fileName);
+        @         return result;
+        @     }
+        @     static CString EscapeCppString (CString text)
+        @     {
+        @         text.Replace (_T ("\\"), _T ("\\\\"));
+        @         text.Replace (_T ("\""), _T ("\\\""));
+        @         text.Replace (_T ("\r"), _T ("\\r"));
+        @         text.Replace (_T ("\n"), _T ("\\n"));
+        @         return text;
+        @     }
+        @     static BOOL ParseLineDirective (CString text, CString& fileName, INT& lineNumber)
+        @     {
+        @         text.Trim ();
+        @         if (!StartsWith (text, _T ("#line ")))
+        @             return FALSE;
+        @         INT firstQuote = text.Find (_T ('\"'));
+        @         INT lastQuote = text.ReverseFind (_T ('\"'));
+        @         CString numberText = (firstQuote > 6 ? text.Mid (6, firstQuote - 6) : text.Mid (6));
+        @         numberText.Trim ();
+        @         lineNumber = _ttoi (numberText);
+        @         fileName = (firstQuote >= 0 && lastQuote > firstQuote ? text.Mid (firstQuote + 1, lastQuote - firstQuote - 1) : CString (_T ("")));
+        @         return lineNumber > 0;
+        @     }
+        @     static BOOL IsSourceMarker (CString text)
+        @     {
+        @         text.Trim ();
+        @         return StartsWith (text, _T ("# 源文件:"));
+        @     }
+        @     static CString SourceFileFromMarker (CString text)
+        @     {
+        @         text.Trim ();
+        @         CString fileName = text.Mid ((INT)_tcslen (_T ("# 源文件:")));
+        @         fileName.Trim ();
+        @         return fileName;
         @     }
         @     static BOOL IsHeaderToken (const CString& t)
         @     {
@@ -1518,16 +2000,29 @@
         @         if (r != _T (";") && r != _T ("{") && r != _T ("}") && r != _T (":"))
         @             s += _T (";");
         @     }
-        @     static void SplitTableTokens (CString src, CStringArray& tokens)
+        @     static void SplitTableTokens (CString src, CStringArray& tokens, CArray<INT, INT>& tokenLines, CStringArray& tokenFiles)
         @     {
         @         src.Replace (_T ("\r\n"), _T ("\n"));
         @         src.Replace (_T ("\r"), _T ("\n"));
         @         src.Replace (_T ("1310"), _T ("\n"));
         @         INT start = 0;
+        @         INT sourceLine = 0;
+        @         CString sourceFile;
         @         while (start <= src.GetLength ())
         @         {
         @             INT pos = src.Find (_T ('\n'), start);
         @             CString line = (pos < 0 ? src.Mid (start) : src.Mid (start, pos - start));
+        @             CString trimmedLine = Trim (line);
+        @             if (IsSourceMarker (trimmedLine))
+        @             {
+        @                 sourceFile = SourceFileFromMarker (trimmedLine);
+        @                 sourceLine = 0;
+        @                 if (pos < 0)
+        @                     break;
+        @                 start = pos + 1;
+        @                 continue;
+        @             }
+        @             sourceLine++;
         @             INT colStart = 0;
         @             while (colStart <= line.GetLength ())
         @             {
@@ -1557,7 +2052,11 @@
         @                 CString token = line.Mid (colStart, colEnd - colStart);
         @                 token.Trim ();
         @                 if (!token.IsEmpty ())
+        @                 {
         @                     tokens.Add (token);
+        @                     tokenLines.Add (sourceLine);
+        @                     tokenFiles.Add (sourceFile);
+        @                 }
         @                 colStart = colEnd;
         @             }
         @             if (pos < 0)
@@ -1572,12 +2071,16 @@
         @         if (src.Find (_T ("命名空间")) < 0 || src.Find (_T ("类名")) < 0 || src.Find (_T ("方法名")) < 0)
         @             return src;
         @         CStringArray tokens;
-        @         SplitTableTokens (src, tokens);
+        @         CArray<INT, INT> tokenLines;
+        @         CStringArray tokenFiles;
+        @         SplitTableTokens (src, tokens, tokenLines, tokenFiles);
         @         CString ns = _T ("控制台.程序");
         @         CString cls = _T ("程序启动类");
         @         CString method = _T ("主程序函数");
         @         CString retType = _T ("整数");
         @         BOOL methodStatic = FALSE;
+        @         CString methodSourceFile;
+        @         INT methodSourceLine = 0;
         @         CString body;
         @         for (INT i = 0; i < tokens.GetSize (); ++i)
         @         {
@@ -1598,7 +2101,16 @@
         @             {
         @                 INT p = i + 1;
         @                 CString v = NextValueToken (tokens, p);
-        @                 if (!v.IsEmpty ()) method = v;
+        @                 if (!v.IsEmpty ())
+        @                 {
+        @                     method = v;
+        @                     INT valueIndex = p - 1;
+        @                     if (valueIndex >= 0 && valueIndex < tokenLines.GetSize ())
+        @                     {
+        @                         methodSourceLine = tokenLines [valueIndex];
+        @                         methodSourceFile = tokenFiles [valueIndex];
+        @                     }
+        @                 }
         @             }
         @             else if (t == _T ("返回值类型:") || t == _T ("返回值类型"))
         @             {
@@ -1609,6 +2121,8 @@
         @             else if ((IsReturnStatement (t) || StartsWith (t, _T ("如果")) || StartsWith (t, _T ("否则")) || StartsWith (t, _T ("变量 "))) && !IsHeaderToken (t))
         @             {
         @                 if (!body.IsEmpty ()) body += _T ("\n");
+        @                 if (i < tokenLines.GetSize ())
+        @                     body += MakeLineDirective (tokenFiles [i], tokenLines [i]);
         @                 body += _T ("        ") + t;
         @             }
         @         }
@@ -1617,6 +2131,7 @@
         @         CString out;
         @         out += _T ("包 ") + ns + _T ("\n\n");
         @         out += _T ("类 ") + cls + _T (" <公开>\n{\n");
+        @         out += MakeLineDirective (methodSourceFile, methodSourceLine);
         @         out += _T ("    方法 ") + method + _T (" <公开 ");
         @         if (methodStatic)
         @             out += _T ("静态 ");
@@ -1737,12 +2252,24 @@
         @         SplitLines (src);
         @         CString curNs = _T ("user_app");
         @         CString curClass;
+        @         CString currentSourceFile;
+        @         INT sourceMarkerIndex = -1;
+        @         CString mappedSourceFile;
+        @         INT mappedSourceLine = 0;
         @         mainIsStatic = FALSE;
         @         mainMethodIndex = -1;
         @         for (INT i = 0; i < lines.GetSize (); ++i)
         @         {
         @             CString raw = lines [i];
         @             CString t = Trim (raw);
+        @             if (IsSourceMarker (t))
+        @             {
+        @                 currentSourceFile = SourceFileFromMarker (t);
+        @                 sourceMarkerIndex = i;
+        @                 continue;
+        @             }
+        @             if (ParseLineDirective (t, mappedSourceFile, mappedSourceLine))
+        @                 continue;
         @             if (StartsWith (t, _T ("#"))) continue;
         @             if (StartsWith (t, _T ("包 ")))
         @             {
@@ -1769,6 +2296,10 @@
         @                 mi.localOrigList = _T ("");
         @                 mi.localCppList = _T ("");
         @                 mi.body = _T ("");
+        @                 mi.sourceFile = (!mappedSourceFile.IsEmpty () ? mappedSourceFile : currentSourceFile);
+        @                 mi.sourceLine = (mappedSourceLine > 0 ? mappedSourceLine : (sourceMarkerIndex >= 0 ? i - sourceMarkerIndex : i + 1));
+        @                 mappedSourceFile.Empty ();
+        @                 mappedSourceLine = 0;
         @                 mi.isStatic = (t.Find (_T ("静态")) >= 0);
         @                 mi.localCount = 0;
         @                 BOOL inBody = FALSE;
@@ -1777,6 +2308,14 @@
         @                 {
         @                     CString l = lines [i];
         @                     CString lt = Trim (l);
+        @                     if (IsSourceMarker (lt))
+        @                     {
+        @                         currentSourceFile = SourceFileFromMarker (lt);
+        @                         sourceMarkerIndex = i;
+        @                         continue;
+        @                     }
+        @                     if (ParseLineDirective (lt, mappedSourceFile, mappedSourceLine))
+        @                         continue;
         @                     if (!inBody && StartsWith (lt, _T ("参数 ")))
         @                     {
         @                         CString pn = TokenAfter (lt, _T ("参数 "));
@@ -1811,7 +2350,20 @@
         @                     }
         @                     if (braceDepth == 1 && closes > opens && lt == _T ("}"))
         @                         break;
-        @                     mi.body += CString (_T ("    ")) + ConvertBodyLine (l, mi) + _T ("\n");
+        @                     CString convertedLine = ConvertBodyLine (l, mi);
+        @                     if (!convertedLine.IsEmpty ())
+        @                     {
+        @                         CString lineFile = (!mappedSourceFile.IsEmpty () ? mappedSourceFile : currentSourceFile);
+        @                         INT lineNumber = (mappedSourceLine > 0 ? mappedSourceLine : (sourceMarkerIndex >= 0 ? i - sourceMarkerIndex : i + 1));
+        @                         mi.body += MakeLineDirective (lineFile, lineNumber);
+        @                         mi.body += CString (_T ("    ")) + convertedLine + _T ("\n");
+        @                     }
+        @                     else
+        @                     {
+        @                         mi.body += _T ("\n");
+        @                     }
+        @                     mappedSourceFile.Empty ();
+        @                     mappedSourceLine = 0;
         @                     braceDepth += opens - closes;
         @                     if (braceDepth <= 0)
         @                         break;
@@ -1843,12 +2395,18 @@
         @             }
         @         }
         @     }
-        @     CString Generate ()
+        @     CString Generate (BOOL generateConsoleEntry, BOOL generateWindowEventAdapter)
         @     {
         @         ResolveMethodCalls ();
         @         CString out;
         @         out += _T ("// Generated by cc开发IDE table-code compiler\r\n");
         @         out += _T ("#include <iostream>\r\n#include <string>\r\n\r\n");
+        @         if (generateWindowEventAdapter)
+        @         {
+        @             out += _T ("#include <windows.h>\r\n#include <cwchar>\r\n\r\n");
+        @             out += _T ("typedef void (*CCIDE_WindowEventCallback)(const wchar_t*, HWND, int, int);\r\n");
+        @             out += _T ("extern \"C\" void CCIDE_SetWindowEventCallback(CCIDE_WindowEventCallback callback);\r\n\r\n");
+        @         }
         @         for (INT c = 0; c < classes.GetSize (); ++c)
         @         {
         @             out += CString (_T ("namespace ")) + classes [c].nsCpp + _T (" {\r\n");
@@ -1859,6 +2417,7 @@
         @                 {
         @                     if (m == mainMethodIndex)
         @                         continue;
+        @                     out += MakeLineDirective (methods [m].sourceFile, methods [m].sourceLine);
         @                     out += _T ("    ");
         @                     if (methods [m].isStatic) out += _T ("static ");
         @                     out += methods [m].retType + _T (" ") + methods [m].methodCpp + _T ("(") + methods [m].params + _T (");\r\n");
@@ -1870,12 +2429,38 @@
         @         {
         @             if (m2 == mainMethodIndex)
         @                 continue;
+        @             out += MakeLineDirective (methods [m2].sourceFile, methods [m2].sourceLine);
         @             out += methods [m2].retType + _T (" ") + methods [m2].nsCpp + _T ("::") + methods [m2].classCpp + _T ("::") + methods [m2].methodCpp + _T ("(") + methods [m2].params + _T (")\r\n{\r\n");
         @             out += methods [m2].body;
         @             out += _T ("}\r\n\r\n");
         @         }
-        @         if (mainMethodIndex >= 0 && mainMethodIndex < methods.GetSize ())
+        @         if (generateWindowEventAdapter)
         @         {
+        @             out += _T ("static void CCIDE_TableWindowEventCallback(const wchar_t* eventName, HWND windowHandle, int sourceId, int detail)\r\n{\r\n");
+        @             out += _T ("    (void)windowHandle;\r\n    (void)sourceId;\r\n    (void)detail;\r\n    if (eventName == NULL) return;\r\n");
+        @             for (INT em = 0; em < methods.GetSize (); ++em)
+        @             {
+        @                 if (em == mainMethodIndex || !methods [em].params.IsEmpty ())
+        @                     continue;
+        @                 CString eventName = EscapeCppString (methods [em].methodName);
+        @                 CString qualifiedEventName = EscapeCppString (methods [em].className + _T ("_") + methods [em].methodName);
+        @                 out += _T ("    if (std::wcscmp(eventName, L\"") + eventName + _T ("\") == 0 || std::wcscmp(eventName, L\"") + qualifiedEventName + _T ("\") == 0)\r\n    {\r\n");
+        @                 if (methods [em].isStatic)
+        @                 {
+        @                     out += _T ("        ") + methods [em].nsCpp + _T ("::") + methods [em].classCpp + _T ("::") + methods [em].methodCpp + _T ("();\r\n");
+        @                 }
+        @                 else
+        @                 {
+        @                     out += _T ("        static ") + methods [em].nsCpp + _T ("::") + methods [em].classCpp + _T (" eventTarget;\r\n");
+        @                     out += _T ("        eventTarget.") + methods [em].methodCpp + _T ("();\r\n");
+        @                 }
+        @                 out += _T ("        return;\r\n    }\r\n");
+        @             }
+        @             out += _T ("}\r\n\r\nstruct CCIDE_TableWindowEventRegistrar\r\n{\r\n    CCIDE_TableWindowEventRegistrar()\r\n    {\r\n        CCIDE_SetWindowEventCallback(&CCIDE_TableWindowEventCallback);\r\n    }\r\n};\r\n\r\nstatic CCIDE_TableWindowEventRegistrar CCIDE_TableWindowEventRegistrarInstance;\r\n\r\n");
+        @         }
+        @         if (generateConsoleEntry && mainMethodIndex >= 0 && mainMethodIndex < methods.GetSize ())
+        @         {
+        @             out += MakeLineDirective (methods [mainMethodIndex].sourceFile, methods [mainMethodIndex].sourceLine);
         @             out += _T ("int main()\r\n{\r\n");
         @             out += methods [mainMethodIndex].body;
         @             out += _T ("}\r\n");
@@ -1887,8 +2472,223 @@
         @ gen.LoadModuleMap (@<接口映射文本>.GetText ());
         @ gen.Parse (@<源码>.GetText ());
         @ CVolString result;
-        @ result.SetText (gen.Generate ());
+        @ result.SetText (gen.Generate (@<是否生成控制台入口>, @<是否生成窗口事件适配器>));
         @ return result;
+    }
+
+    方法 是否C源文件 <公开 类型 = 逻辑型>
+    参数 源文件 <类型 = 文本型>
+    {
+        变量 小写路径 <类型 = 文本型>
+        小写路径 = 到小写 (源文件)
+        如果 (文本类.取文本长度 (小写路径) < 2)
+        {
+            返回 (假)
+        }
+        返回 (文本类.取文本右边 (小写路径, 2) == ".c")
+    }
+
+    方法 取C加加标准参数 <公开 类型 = 文本型>
+    {
+        变量 标准文本 <类型 = 文本型>
+        标准文本 = 到小写 (成员_C加加语言标准)
+        如果 (文本类.寻找文本 (标准文本, "c++20", 0, 真) >= 0)
+        {
+            返回 (选择 (成员_编译器类型 == "msvc", "/std:c++20", "-std=c++20"))
+        }
+        如果 (文本类.寻找文本 (标准文本, "c++17", 0, 真) >= 0)
+        {
+            返回 (选择 (成员_编译器类型 == "msvc", "/std:c++17", "-std=c++17"))
+        }
+        返回 (选择 (成员_编译器类型 == "msvc", "/std:c++14", "-std=c++14"))
+    }
+
+    方法 取C标准参数 <公开 类型 = 文本型>
+    {
+        变量 标准文本 <类型 = 文本型>
+        标准文本 = 到小写 (成员_C语言标准)
+        如果 (文本类.寻找文本 (标准文本, "c17", 0, 真) >= 0)
+        {
+            返回 (选择 (成员_编译器类型 == "msvc", "/std:c17", "-std=c17"))
+        }
+        如果 (文本类.寻找文本 (标准文本, "c11", 0, 真) >= 0)
+        {
+            返回 (选择 (成员_编译器类型 == "msvc", "/std:c11", "-std=c11"))
+        }
+        返回 ("")
+    }
+
+    方法 取警告参数 <公开 类型 = 文本型>
+    {
+        变量 参数文本 <类型 = 文本型>
+        如果 (成员_编译器类型 == "msvc")
+        {
+            如果 (文本类.寻找文本 (成员_警告等级, "/W4", 0, 真) >= 0)
+            {
+                参数文本 = "/W4"
+            }
+            否则 (文本类.寻找文本 (成员_警告等级, "/W3", 0, 真) >= 0)
+            {
+                参数文本 = "/W3"
+            }
+            否则 (文本类.寻找文本 (成员_警告等级, "/W2", 0, 真) >= 0)
+            {
+                参数文本 = "/W2"
+            }
+            否则 (文本类.寻找文本 (成员_警告等级, "/W1", 0, 真) >= 0)
+            {
+                参数文本 = "/W1"
+            }
+            如果 (成员_将警告视为错误)
+            {
+                参数文本 = 参数文本 + " /WX"
+            }
+            返回 (取裁剪文本 (参数文本))
+        }
+        参数文本 = "-Wall"
+        如果 (文本类.寻找文本 (成员_警告等级, "/W2", 0, 真) >= 0)
+        {
+            参数文本 = "-Wall -Wextra"
+        }
+        否则 (文本类.寻找文本 (成员_警告等级, "/W3", 0, 真) >= 0)
+        {
+            参数文本 = "-Wall -Wextra -Wpedantic"
+        }
+        否则 (文本类.寻找文本 (成员_警告等级, "/W4", 0, 真) >= 0)
+        {
+            参数文本 = "-Wall -Wextra -Wpedantic -Wconversion -Wshadow"
+        }
+        如果 (成员_将警告视为错误)
+        {
+            参数文本 = 参数文本 + " -Werror"
+        }
+        返回 (参数文本)
+    }
+
+    方法 取MSVC运行库参数 <公开 类型 = 文本型>
+    {
+        如果 (成员_编译器类型 != "msvc")
+        {
+            返回 ("")
+        }
+        如果 (文本类.寻找文本 (成员_运行库, "/MTd", 0, 真) >= 0)
+        {
+            返回 ("/MTd")
+        }
+        如果 (文本类.寻找文本 (成员_运行库, "/MT", 0, 真) >= 0)
+        {
+            返回 ("/MT")
+        }
+        如果 (文本类.寻找文本 (成员_运行库, "/MDd", 0, 真) >= 0)
+        {
+            返回 ("/MDd")
+        }
+        返回 ("/MD")
+    }
+
+    方法 取链接调试参数 <公开 类型 = 文本型>
+    {
+        如果 (成员_编译器类型 != "msvc" || 成员_生成调试信息 == "")
+        {
+            返回 ("")
+        }
+        如果 (文本类.寻找文本 (成员_生成调试信息, "FASTLINK", 0, 真) >= 0)
+        {
+            返回 ("/DEBUG:FASTLINK")
+        }
+        如果 (文本类.寻找文本 (成员_生成调试信息, "FULL", 0, 真) >= 0)
+        {
+            返回 ("/DEBUG:FULL")
+        }
+        返回 ("/DEBUG")
+    }
+
+    方法 取子系统参数 <公开 类型 = 文本型>
+    {
+        如果 (成员_编译器类型 != "msvc")
+        {
+            如果 (文本类.寻找文本 (成员_子系统, "WINDOWS", 0, 真) >= 0)
+            {
+                返回 ("-mwindows")
+            }
+            返回 ("")
+        }
+        如果 (文本类.寻找文本 (成员_子系统, "EFI_APPLICATION", 0, 真) >= 0)
+        {
+            返回 ("/SUBSYSTEM:EFI_APPLICATION")
+        }
+        如果 (文本类.寻找文本 (成员_子系统, "EFI_BOOT_SERVICE_DRIVER", 0, 真) >= 0)
+        {
+            返回 ("/SUBSYSTEM:EFI_BOOT_SERVICE_DRIVER")
+        }
+        如果 (文本类.寻找文本 (成员_子系统, "EFI_RUNTIME_DRIVER", 0, 真) >= 0)
+        {
+            返回 ("/SUBSYSTEM:EFI_RUNTIME_DRIVER")
+        }
+        如果 (文本类.寻找文本 (成员_子系统, "EFI_ROM", 0, 真) >= 0)
+        {
+            返回 ("/SUBSYSTEM:EFI_ROM")
+        }
+        如果 (文本类.寻找文本 (成员_子系统, "NATIVE", 0, 真) >= 0)
+        {
+            返回 ("/SUBSYSTEM:NATIVE")
+        }
+        如果 (文本类.寻找文本 (成员_子系统, "POSIX", 0, 真) >= 0)
+        {
+            返回 ("/SUBSYSTEM:POSIX")
+        }
+        如果 (文本类.寻找文本 (成员_子系统, "WINDOWS", 0, 真) >= 0)
+        {
+            返回 ("/SUBSYSTEM:WINDOWS")
+        }
+        返回 ("/SUBSYSTEM:CONSOLE")
+    }
+
+    方法 取输出文件名 <公开 类型 = 文本型>
+    参数 项目名称 <类型 = 文本型>
+    {
+        如果 (成员_输出类型 == "dll")
+        {
+            返回 (项目名称 + ".dll")
+        }
+        如果 (成员_输出类型 == "lib")
+        {
+            如果 (成员_编译器类型 == "msvc")
+            {
+                返回 (项目名称 + ".lib")
+            }
+            返回 ("lib" + 项目名称 + ".a")
+        }
+        返回 (项目名称 + ".exe")
+    }
+
+    方法 取输出文件路径 <公开 类型 = 文本型>
+    参数 构建目录 <类型 = 文本型>
+    参数 项目名称 <类型 = 文本型>
+    {
+        返回 (去除末尾反斜杠 (构建目录) + "\\" + 取输出文件名 (项目名称))
+    }
+
+    方法 取静态库工具路径 <公开 类型 = 文本型>
+    {
+        变量 工具目录 <类型 = 文本型>
+        变量 工具路径 <类型 = 文本型>
+        工具目录 = 磁盘操作类.取文件名路径 (成员_编译器路径)
+        如果 (成员_编译器类型 == "msvc")
+        {
+            工具路径 = 工具目录 + "\\lib.exe"
+            如果 (内部_文件是否存在 (工具路径))
+            {
+                返回 (工具路径)
+            }
+            返回 ("lib.exe")
+        }
+        工具路径 = 工具目录 + "\\ar.exe"
+        如果 (内部_文件是否存在 (工具路径))
+        {
+            返回 (工具路径)
+        }
+        返回 ("ar.exe")
     }
 
     方法 构建编译命令 <公开 类型 = 文本型>
@@ -1902,17 +2702,50 @@
         变量 清理构建目录 <类型 = 文本型>
         清理构建目录 = 去除末尾反斜杠 (构建目录)
         变量 命令 <类型 = 文本型>
+        变量 语言标准参数 <类型 = 文本型>
+        变量 警告参数 <类型 = 文本型>
+        变量 运行库参数 <类型 = 文本型>
+        如果 (是否C源文件 (源文件))
+        {
+            语言标准参数 = 取C标准参数 ()
+        }
+        否则
+        {
+            语言标准参数 = 取C加加标准参数 ()
+        }
+        警告参数 = 取警告参数 ()
         如果 (成员_编译器类型 == "msvc")
         {
             命令 = "\"" + 成员_编译器路径 + "\""
-            命令 = 命令 + " /nologo /EHsc /std:c++17 /utf-8 /c"
+            命令 = 命令 + " /nologo /utf-8 /c"
+            如果 (是否C源文件 (源文件) == 假)
+            {
+                命令 = 命令 + " /EHsc"
+            }
+            如果 (语言标准参数 != "")
+            {
+                命令 = 命令 + " " + 语言标准参数
+            }
             如果 (成员_配置 == "Debug")
             {
-                命令 = 命令 + " /Zi /Od /DDEBUG"
+                命令 = 命令 + " /Od /DDEBUG"
             }
             否则
             {
                 命令 = 命令 + " /O2 /DNDEBUG"
+            }
+            如果 (成员_生成调试信息 != "")
+            {
+                命令 = 命令 + " /Zi"
+            }
+            如果 (警告参数 != "")
+            {
+                命令 = 命令 + " " + 警告参数
+            }
+            运行库参数 = 取MSVC运行库参数 ()
+            如果 (运行库参数 != "")
+            {
+                命令 = 命令 + " " + 运行库参数
             }
             命令 = 命令 + " /I\"" + 清理项目目录 + "\""
             命令 = 命令 + " /I\"" + 清理构建目录 + "\""
@@ -1936,7 +2769,7 @@
                 {
                     跳出循环 ()
                 }
-                命令 = 命令 + " /D" + 成员_预定义.取成员 (MSVC预定义索引)
+                命令 = 命令 + " /D\"" + 成员_预定义.取成员 (MSVC预定义索引) + "\""
                 MSVC预定义索引 = MSVC预定义索引 + 1
             }
             循环判断尾 (MSVC预定义索引 < 成员_预定义.取成员数 ())
@@ -1946,6 +2779,10 @@
         }
         命令 = "\"" + 成员_编译器路径 + "\""
         命令 = 命令 + " -c"
+        如果 (是否C源文件 (源文件))
+        {
+            命令 = 命令 + " -x c"
+        }
         如果 (成员_平台 == "x64")
         {
             命令 = 命令 + " -m64"
@@ -1956,11 +2793,23 @@
         }
         如果 (成员_配置 == "Debug")
         {
-            命令 = 命令 + " -g -O0 -Wall -DDEBUG"
+            命令 = 命令 + " -O0 -DDEBUG"
         }
         否则
         {
             命令 = 命令 + " -O2 -DNDEBUG"
+        }
+        如果 (成员_生成调试信息 != "")
+        {
+            命令 = 命令 + " -g"
+        }
+        如果 (警告参数 != "")
+        {
+            命令 = 命令 + " " + 警告参数
+        }
+        如果 (语言标准参数 != "")
+        {
+            命令 = 命令 + " " + 语言标准参数
         }
         命令 = 命令 + " -I\"" + 清理项目目录 + "\""
         命令 = 命令 + " -I\"" + 清理构建目录 + "\""
@@ -1984,11 +2833,11 @@
             {
                 跳出循环 ()
             }
-            命令 = 命令 + " -D" + 成员_预定义.取成员 (预定义索引)
+            命令 = 命令 + " -D\"" + 成员_预定义.取成员 (预定义索引) + "\""
             预定义索引 = 预定义索引 + 1
         }
         循环判断尾 (预定义索引 < 成员_预定义.取成员数 ())
-        命令 = 命令 + " -std=c++17 -finput-charset=UTF-8"
+        命令 = 命令 + " -finput-charset=UTF-8"
         命令 = 命令 + " \"" + 源文件 + "\""
         命令 = 命令 + " -o \"" + 目标文件 + "\""
         返回 (命令)
@@ -2002,18 +2851,27 @@
         变量 清理构建目录2 <类型 = 文本型>
         清理构建目录2 = 去除末尾反斜杠 (构建目录)
         变量 命令 <类型 = 文本型>
-        变量 输出扩展 <类型 = 文本型>
-        如果 (成员_输出类型 == "dll")
+        变量 输出路径 <类型 = 文本型>
+        输出路径 = 取输出文件路径 (清理构建目录2, 项目名称)
+        如果 (成员_输出类型 == "lib")
         {
-            输出扩展 = ".dll"
-        }
-        否则 (成员_输出类型 == "lib")
-        {
-            输出扩展 = ".a"
-        }
-        否则
-        {
-            输出扩展 = ".exe"
+            命令 = "\"" + 取静态库工具路径 () + "\""
+            如果 (成员_编译器类型 == "msvc")
+            {
+                命令 = 命令 + " /NOLOGO /OUT:\"" + 输出路径 + "\""
+            }
+            否则
+            {
+                命令 = 命令 + " rcs \"" + 输出路径 + "\""
+            }
+            变量 静态目标索引 <类型 = 整数>
+            静态目标索引 = 0
+            判断循环 (静态目标索引 < 目标文件组.取成员数 ())
+            {
+                命令 = 命令 + " \"" + 目标文件组.取成员 (静态目标索引) + "\""
+                静态目标索引 = 静态目标索引 + 1
+            }
+            返回 (命令)
         }
         如果 (成员_编译器类型 == "msvc")
         {
@@ -2034,7 +2892,7 @@
                 MSVC目标索引 = MSVC目标索引 + 1
             }
             循环判断尾 (MSVC目标索引 < 目标文件组.取成员数 ())
-            命令 = 命令 + " /Fe\"" + 清理构建目录2 + "\\" + 项目名称 + 输出扩展 + "\""
+            命令 = 命令 + " /Fe\"" + 输出路径 + "\""
             命令 = 命令 + " /link"
             变量 MSVC库目录索引 <类型 = 整数>
             MSVC库目录索引 = 0
@@ -2056,17 +2914,21 @@
                 {
                     跳出循环 ()
                 }
-                命令 = 命令 + " " + 成员_链接库.取成员 (MSVC链接库索引)
+                命令 = 命令 + " \"" + 成员_链接库.取成员 (MSVC链接库索引) + "\""
                 MSVC链接库索引 = MSVC链接库索引 + 1
             }
             循环判断尾 (MSVC链接库索引 < 成员_链接库.取成员数 ())
-            如果 (成员_项目类型 == "window")
+            变量 调试参数 <类型 = 文本型>
+            调试参数 = 取链接调试参数 ()
+            如果 (调试参数 != "")
             {
-                命令 = 命令 + " /SUBSYSTEM:WINDOWS"
+                命令 = 命令 + " " + 调试参数
             }
-            否则
+            变量 子系统参数 <类型 = 文本型>
+            子系统参数 = 取子系统参数 ()
+            如果 (子系统参数 != "")
             {
-                命令 = 命令 + " /SUBSYSTEM:CONSOLE"
+                命令 = 命令 + " " + 子系统参数
             }
             返回 (命令)
         }
@@ -2083,13 +2945,11 @@
         {
             命令 = 命令 + " -shared"
         }
-        否则
+        变量 GCC子系统参数 <类型 = 文本型>
+        GCC子系统参数 = 取子系统参数 ()
+        如果 (GCC子系统参数 != "")
         {
-            命令 = 命令 + " -static"
-        }
-        如果 (成员_项目类型 == "window")
-        {
-            命令 = 命令 + " -mwindows"
+            命令 = 命令 + " " + GCC子系统参数
         }
         变量 目标索引 <类型 = 整数>
         目标索引 = 0
@@ -2116,6 +2976,7 @@
         }
         循环判断尾 (库目录索引 < 成员_库目录.取成员数 ())
         变量 链接库索引 <类型 = 整数>
+        变量 当前链接库 <类型 = 文本型>
         链接库索引 = 0
         循环判断首 ()
         {
@@ -2123,17 +2984,30 @@
             {
                 跳出循环 ()
             }
-            命令 = 命令 + " -l" + 成员_链接库.取成员 (链接库索引)
+            当前链接库 = 成员_链接库.取成员 (链接库索引)
+            如果 (文本类.寻找文本 (当前链接库, ":\\", 0, 真) >= 0 || 文本类.寻找文本 (当前链接库, "\\", 0, 真) >= 0 || 文本类.寻找文本 (当前链接库, "/", 0, 真) >= 0)
+            {
+                命令 = 命令 + " \"" + 当前链接库 + "\""
+            }
+            否则
+            {
+                命令 = 命令 + " -l" + 当前链接库
+            }
             链接库索引 = 链接库索引 + 1
         }
         循环判断尾 (链接库索引 < 成员_链接库.取成员数 ())
-        命令 = 命令 + " -o \"" + 清理构建目录2 + "\\" + 项目名称 + 输出扩展 + "\""
+        命令 = 命令 + " -o \"" + 输出路径 + "\""
         返回 (命令)
     }
 
     方法 运行程序 <公开 类型 = 逻辑型>
     参数 输出回调 <类型 = 构建输出回调类>
     {
+        如果 (成员_输出类型 != "exe")
+        {
+            输出回调.输出文本 ("当前配置生成的是库文件，不能直接启动运行。")
+            返回 (假)
+        }
         如果 (成员_最后输出路径 == "" || 内部_文件是否存在 (成员_最后输出路径) == 假)
         {
             输出回调.输出文本 ("错误: 没有可运行的程序，请先编译。")
